@@ -359,18 +359,6 @@ agent-ledger/
 - [ ] **Phase 5: MCP Integration** — Meter MCP tool calls alongside LLM costs
 - [ ] **Phase 6: Polish & Launch** — Docker, GoReleaser, Helm chart, docs
 
-## How It Compares
-
-| Feature | AgentLedger | LiteLLM | Helicone |
-|---------|-------------|---------|----------|
-| Per-agent cost tracking | Yes | No | No |
-| Budget enforcement | Free | Paywalled | No |
-| Pre-flight cost estimation | Yes | No | No |
-| Loop detection (planned) | Yes | No | No |
-| Language | Go (single binary) | Python | TypeScript |
-| Runtime dependencies | None | Python + Postgres | Hosted |
-| Proxy overhead | ~0.1ms | Variable | N/A |
-
 ## License
 
 Apache 2.0
