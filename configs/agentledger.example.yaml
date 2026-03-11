@@ -22,3 +22,21 @@ log:
 recording:
   buffer_size: 10000   # async recording channel buffer
   workers: 4           # number of recording goroutines
+
+# Budget enforcement (optional — omit to disable)
+# budgets:
+#   default:
+#     daily_limit_usd: 50.0
+#     monthly_limit_usd: 500.0
+#     soft_limit_pct: 0.8    # warn at 80% of limit
+#     action: "block"        # "block" returns 429, "warn" adds header only
+#   rules:
+#     - api_key_pattern: "sk-proj-dev-*"
+#       daily_limit_usd: 5.0
+#       monthly_limit_usd: 50.0
+#       action: "block"
+
+# Circuit breaker (optional — omit to disable)
+# circuit_breaker:
+#   max_failures: 5       # consecutive 5xx before opening circuit
+#   timeout_secs: 30      # seconds before trying again (half-open)
