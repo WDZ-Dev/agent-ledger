@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/WDZ-Dev/agent-ledger/internal/agent"
 	"github.com/WDZ-Dev/agent-ledger/internal/budget"
 	"github.com/WDZ-Dev/agent-ledger/internal/config"
 	"github.com/WDZ-Dev/agent-ledger/internal/ledger"
@@ -104,8 +105,28 @@ func runServe(configPath string) error {
 		)
 	}
 
+	// Agent session tracker
+	var tracker *agent.Tracker
+	agentCfg := agent.Config{
+		SessionTimeoutMins: cfg.Agent.SessionTimeoutMins,
+		LoopThreshold:      cfg.Agent.LoopThreshold,
+		LoopWindowMins:     cfg.Agent.LoopWindowMins,
+		LoopAction:         cfg.Agent.LoopAction,
+		GhostMaxAgeMins:    cfg.Agent.GhostMaxAgeMins,
+		GhostMinCalls:      cfg.Agent.GhostMinCalls,
+		GhostMinCostUSD:    cfg.Agent.GhostMinCostUSD,
+	}
+	tracker = agent.NewTracker(store, agentCfg, logger)
+	defer tracker.Close()
+	if tracker.Enabled() {
+		logger.Info("agent session tracking enabled",
+			"loop_threshold", agentCfg.LoopThreshold,
+			"ghost_max_age_mins", agentCfg.GhostMaxAgeMins,
+		)
+	}
+
 	// Proxy
-	p := proxy.New(reg, m, rec, budgetMgr, transport, logger)
+	p := proxy.New(reg, m, rec, budgetMgr, tracker, transport, logger)
 
 	srv := &http.Server{
 		Addr:              cfg.Listen,

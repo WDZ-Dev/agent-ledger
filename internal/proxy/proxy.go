@@ -15,6 +15,7 @@ import (
 
 	"github.com/oklog/ulid/v2"
 
+	"github.com/WDZ-Dev/agent-ledger/internal/agent"
 	"github.com/WDZ-Dev/agent-ledger/internal/budget"
 	"github.com/WDZ-Dev/agent-ledger/internal/ledger"
 	"github.com/WDZ-Dev/agent-ledger/internal/meter"
@@ -34,6 +35,8 @@ const (
 	ctxSessionID
 	ctxUserID
 	ctxBudgetResult
+	ctxTask
+	ctxSessionEnd
 )
 
 // Proxy is the core reverse proxy that intercepts LLM API calls,
@@ -44,18 +47,20 @@ type Proxy struct {
 	meter    *meter.Meter
 	recorder *ledger.Recorder
 	budget   *budget.Manager
+	tracker  *agent.Tracker
 	logger   *slog.Logger
 }
 
 // New creates a Proxy wired to the given registry, meter, recorder, and
-// optional budget manager. Pass nil for budgetMgr to disable budget enforcement.
-// Pass nil for transport to use the default pooled transport.
-func New(registry *provider.Registry, m *meter.Meter, recorder *ledger.Recorder, budgetMgr *budget.Manager, transport http.RoundTripper, logger *slog.Logger) *Proxy {
+// optional budget manager and agent tracker. Pass nil for budgetMgr/tracker
+// to disable those features. Pass nil for transport to use the default pooled transport.
+func New(registry *provider.Registry, m *meter.Meter, recorder *ledger.Recorder, budgetMgr *budget.Manager, tracker *agent.Tracker, transport http.RoundTripper, logger *slog.Logger) *Proxy {
 	p := &Proxy{
 		registry: registry,
 		meter:    m,
 		recorder: recorder,
 		budget:   budgetMgr,
+		tracker:  tracker,
 		logger:   logger,
 	}
 
@@ -110,7 +115,25 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	apiKeyHash := provider.HashAPIKey(apiKey)
 
 	// Extract agent headers before stripping.
-	agentID, sessionID, userID, _ := provider.ExtractAgentHeaders(r)
+	agentID, sessionID, userID, task := provider.ExtractAgentHeaders(r)
+	sessionEnd := r.Header.Get("X-Agent-Session-End") == "true"
+
+	// Agent session tracking.
+	if p.tracker != nil && p.tracker.Enabled() && sessionID != "" {
+		if sessionEnd {
+			p.tracker.EndSession(sessionID)
+		} else {
+			model := ""
+			if reqMeta != nil {
+				model = reqMeta.Model
+			}
+			alert := p.tracker.TrackCall(sessionID, agentID, userID, task, model, r.URL.Path)
+			if alert != nil && alert.Type == "loop_detected" && p.tracker.ShouldBlock() {
+				writeJSONError(w, http.StatusTooManyRequests, "loop detected: "+alert.Message)
+				return
+			}
+		}
+	}
 
 	// Budget check: reject or warn before forwarding.
 	var budgetResult *budget.Result
@@ -162,6 +185,8 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx = context.WithValue(ctx, ctxSessionID, sessionID)
 	ctx = context.WithValue(ctx, ctxUserID, userID)
 	ctx = context.WithValue(ctx, ctxBudgetResult, budgetResult)
+	ctx = context.WithValue(ctx, ctxTask, task)
+	ctx = context.WithValue(ctx, ctxSessionEnd, sessionEnd)
 
 	r = r.WithContext(ctx)
 	r.Body = io.NopCloser(bytes.NewReader(body))
@@ -216,7 +241,7 @@ func (p *Proxy) modifyResponse(resp *http.Response) error {
 
 	if isStream {
 		resp.Body = newStreamInterceptor(
-			resp.Body, prov, reqMeta, p.meter, p.recorder, p.logger,
+			resp.Body, prov, reqMeta, p.meter, p.recorder, p.tracker, p.logger,
 			start, apiKeyHash, resp.Request.URL.Path,
 			agentID, sessionID, userID,
 		)
@@ -271,6 +296,11 @@ func (p *Proxy) modifyResponse(resp *http.Response) error {
 		UserID:       userID,
 	}
 	p.recorder.Record(record)
+
+	// Update agent session cost.
+	if p.tracker != nil && sessionID != "" {
+		p.tracker.RecordCost(sessionID, cost, respMeta.TotalTokens)
+	}
 
 	p.logger.Info("request",
 		"provider", prov.Name(),
