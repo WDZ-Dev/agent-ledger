@@ -11,6 +11,8 @@ import (
 
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite" // register sqlite driver
+
+	"github.com/WDZ-Dev/agent-ledger/internal/agent"
 )
 
 //go:embed migrations/*.sql
@@ -84,10 +86,14 @@ func (s *SQLite) QueryCosts(ctx context.Context, filter CostFilter) ([]CostEntry
 		groupCol = "provider"
 	case "key":
 		groupCol = "api_key_hash"
+	case "agent":
+		groupCol = "agent_id"
+	case "session":
+		groupCol = "session_id"
 	}
 
 	q := fmt.Sprintf(`SELECT
-		provider, model, api_key_hash,
+		provider, model, api_key_hash, agent_id, session_id,
 		COUNT(*) as requests,
 		COALESCE(SUM(input_tokens), 0),
 		COALESCE(SUM(output_tokens), 0),
@@ -106,8 +112,8 @@ func (s *SQLite) QueryCosts(ctx context.Context, filter CostFilter) ([]CostEntry
 	var entries []CostEntry
 	for rows.Next() {
 		var e CostEntry
-		if err := rows.Scan(&e.Provider, &e.Model, &e.APIKeyHash, &e.Requests,
-			&e.InputTokens, &e.OutputTokens, &e.TotalCostUSD); err != nil {
+		if err := rows.Scan(&e.Provider, &e.Model, &e.APIKeyHash, &e.AgentID, &e.SessionID,
+			&e.Requests, &e.InputTokens, &e.OutputTokens, &e.TotalCostUSD); err != nil {
 			return nil, fmt.Errorf("scanning cost entry: %w", err)
 		}
 		entries = append(entries, e)
@@ -124,6 +130,88 @@ func (s *SQLite) GetTotalSpend(ctx context.Context, apiKeyHash string, since, un
 		return 0, fmt.Errorf("querying total spend: %w", err)
 	}
 	return total, nil
+}
+
+// UpsertSession inserts or updates an agent session record.
+func (s *SQLite) UpsertSession(ctx context.Context, sess *agent.Session) error {
+	const q = `INSERT INTO agent_sessions (
+		id, agent_id, user_id, task, started_at, ended_at, status,
+		call_count, total_cost_usd, total_tokens
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(id) DO UPDATE SET
+		ended_at = excluded.ended_at,
+		status = excluded.status,
+		call_count = excluded.call_count,
+		total_cost_usd = excluded.total_cost_usd,
+		total_tokens = excluded.total_tokens`
+
+	var endedAt *time.Time
+	if sess.EndedAt != nil {
+		endedAt = sess.EndedAt
+	}
+
+	_, err := s.db.ExecContext(ctx, q,
+		sess.ID, sess.AgentID, sess.UserID, sess.Task,
+		sess.StartedAt.UTC(), endedAt, sess.Status,
+		sess.CallCount, sess.TotalCostUSD, sess.TotalTokens,
+	)
+	if err != nil {
+		return fmt.Errorf("upserting session: %w", err)
+	}
+	return nil
+}
+
+// GetSession retrieves a single agent session by ID.
+func (s *SQLite) GetSession(ctx context.Context, id string) (*agent.Session, error) {
+	const q = `SELECT id, agent_id, user_id, task, started_at, ended_at, status,
+		call_count, total_cost_usd, total_tokens
+	FROM agent_sessions WHERE id = ?`
+
+	var sess agent.Session
+	var endedAt sql.NullTime
+	err := s.db.QueryRowContext(ctx, q, id).Scan(
+		&sess.ID, &sess.AgentID, &sess.UserID, &sess.Task,
+		&sess.StartedAt, &endedAt, &sess.Status,
+		&sess.CallCount, &sess.TotalCostUSD, &sess.TotalTokens,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("getting session: %w", err)
+	}
+	if endedAt.Valid {
+		sess.EndedAt = &endedAt.Time
+	}
+	return &sess, nil
+}
+
+// ListActiveSessions returns all sessions with status "active".
+func (s *SQLite) ListActiveSessions(ctx context.Context) ([]agent.Session, error) {
+	const q = `SELECT id, agent_id, user_id, task, started_at, ended_at, status,
+		call_count, total_cost_usd, total_tokens
+	FROM agent_sessions WHERE status = 'active'`
+
+	rows, err := s.db.QueryContext(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("listing active sessions: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var sessions []agent.Session
+	for rows.Next() {
+		var sess agent.Session
+		var endedAt sql.NullTime
+		if err := rows.Scan(
+			&sess.ID, &sess.AgentID, &sess.UserID, &sess.Task,
+			&sess.StartedAt, &endedAt, &sess.Status,
+			&sess.CallCount, &sess.TotalCostUSD, &sess.TotalTokens,
+		); err != nil {
+			return nil, fmt.Errorf("scanning session: %w", err)
+		}
+		if endedAt.Valid {
+			sess.EndedAt = &endedAt.Time
+		}
+		sessions = append(sessions, sess)
+	}
+	return sessions, rows.Err()
 }
 
 func (s *SQLite) Close() error {

@@ -83,13 +83,29 @@ func HashAPIKey(key string) string {
 	return hex.EncodeToString(h[:12])
 }
 
-// ExtractAgentHeaders reads agent identification headers and returns them.
-// These headers are stripped before forwarding to upstream.
+// ExtractAgentHeaders reads agent identification from headers first,
+// falling back to query parameters (?_agent_id=, ?_agent_session=, etc.).
+// Headers are stripped before forwarding to upstream.
 func ExtractAgentHeaders(r *http.Request) (agentID, sessionID, userID, task string) {
 	agentID = r.Header.Get("X-Agent-Id")
 	sessionID = r.Header.Get("X-Agent-Session")
 	userID = r.Header.Get("X-Agent-User")
 	task = r.Header.Get("X-Agent-Task")
+
+	// Query param fallback.
+	q := r.URL.Query()
+	if agentID == "" {
+		agentID = q.Get("_agent_id")
+	}
+	if sessionID == "" {
+		sessionID = q.Get("_agent_session")
+	}
+	if userID == "" {
+		userID = q.Get("_agent_user")
+	}
+	if task == "" {
+		task = q.Get("_agent_task")
+	}
 	return
 }
 

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/WDZ-Dev/agent-ledger/internal/agent"
 	"github.com/WDZ-Dev/agent-ledger/internal/budget"
 	"github.com/WDZ-Dev/agent-ledger/internal/config"
 	"github.com/WDZ-Dev/agent-ledger/internal/ledger"
@@ -59,7 +60,7 @@ func setupTestProxy(t *testing.T, upstream *httptest.Server) (*Proxy, *ledger.Re
 	})
 
 	m := meter.New()
-	p := New(reg, m, rec, nil, nil, logger)
+	p := New(reg, m, rec, nil, nil, nil, logger)
 	return p, rec, store
 }
 
@@ -257,7 +258,7 @@ func TestBudgetBlocks429(t *testing.T) {
 		},
 	}, logger)
 
-	p := New(reg, m, rec, budgetMgr, nil, logger)
+	p := New(reg, m, rec, budgetMgr, nil, nil, logger)
 
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
@@ -306,7 +307,7 @@ func TestBudgetWarningHeader(t *testing.T) {
 		},
 	}, logger)
 
-	p := New(reg, m, rec, budgetMgr, nil, logger)
+	p := New(reg, m, rec, budgetMgr, nil, nil, logger)
 
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
@@ -351,7 +352,7 @@ func TestPreflightRejectsExpensiveRequest(t *testing.T) {
 		},
 	}, logger)
 
-	p := New(reg, m, rec, budgetMgr, nil, logger)
+	p := New(reg, m, rec, budgetMgr, nil, nil, logger)
 
 	// max_tokens=1000000 → worst-case output cost = $0.60 > $0.50 remaining
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}],"max_tokens":1000000}`
@@ -375,6 +376,116 @@ func TestPreflightRejectsExpensiveRequest(t *testing.T) {
 	}
 	if errObj["estimated_cost"] == nil {
 		t.Error("expected estimated_cost in pre-flight error")
+	}
+}
+
+// mockSessionStore implements agent.SessionStore for testing.
+type mockSessionStore struct{}
+
+func (m *mockSessionStore) UpsertSession(_ context.Context, _ *agent.Session) error { return nil }
+func (m *mockSessionStore) GetSession(_ context.Context, _ string) (*agent.Session, error) {
+	return nil, nil
+}
+func (m *mockSessionStore) ListActiveSessions(_ context.Context) ([]agent.Session, error) {
+	return nil, nil
+}
+
+func TestAgentLoopBlocks429(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"model":"gpt-4o-mini","usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
+	}))
+	defer upstream.Close()
+
+	store := &mockStore{}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	rec := ledger.NewRecorder(store, 100, 1, logger)
+	t.Cleanup(func() { rec.Close() })
+
+	reg := provider.NewRegistry(config.ProvidersConfig{
+		OpenAI: config.ProviderConfig{Upstream: upstream.URL, Enabled: true},
+	})
+	m := meter.New()
+
+	tracker := agent.NewTracker(&mockSessionStore{}, agent.Config{
+		SessionTimeoutMins: 30,
+		LoopThreshold:      3,
+		LoopWindowMins:     5,
+		LoopAction:         "block",
+	}, logger)
+	defer tracker.Close()
+
+	p := New(reg, m, rec, nil, tracker, nil, logger)
+
+	// Send 3 requests with the same session — third should trigger loop block.
+	for i := 0; i < 3; i++ {
+		body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`
+		req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer sk-proj-test1234abcd")
+		req.Header.Set("X-Agent-Id", "test-agent")
+		req.Header.Set("X-Agent-Session", "sess_loop")
+		w := httptest.NewRecorder()
+
+		p.ServeHTTP(w, req)
+
+		if i < 2 && w.Code != 200 {
+			t.Errorf("request %d: status = %d, want 200", i+1, w.Code)
+		}
+		if i == 2 && w.Code != http.StatusTooManyRequests {
+			t.Errorf("request %d: status = %d, want 429 (loop block)", i+1, w.Code)
+		}
+	}
+}
+
+func TestAgentSessionEndHeader(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"model":"gpt-4o-mini","usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
+	}))
+	defer upstream.Close()
+
+	store := &mockStore{}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	rec := ledger.NewRecorder(store, 100, 1, logger)
+	t.Cleanup(func() { rec.Close() })
+
+	reg := provider.NewRegistry(config.ProvidersConfig{
+		OpenAI: config.ProviderConfig{Upstream: upstream.URL, Enabled: true},
+	})
+	m := meter.New()
+
+	tracker := agent.NewTracker(&mockSessionStore{}, agent.Config{
+		SessionTimeoutMins: 30,
+		LoopThreshold:      0,
+	}, logger)
+	defer tracker.Close()
+
+	p := New(reg, m, rec, nil, tracker, nil, logger)
+
+	// Start a session.
+	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`
+	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer sk-proj-test1234abcd")
+	req.Header.Set("X-Agent-Id", "test-agent")
+	req.Header.Set("X-Agent-Session", "sess_end")
+	w := httptest.NewRecorder()
+	p.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	// End the session via header.
+	req2 := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
+	req2.Header.Set("Authorization", "Bearer sk-proj-test1234abcd")
+	req2.Header.Set("X-Agent-Session", "sess_end")
+	req2.Header.Set("X-Agent-Session-End", "true")
+	w2 := httptest.NewRecorder()
+	p.ServeHTTP(w2, req2)
+
+	// The end-session request still gets proxied.
+	if w2.Code != 200 {
+		t.Errorf("status = %d, want 200", w2.Code)
 	}
 }
 
@@ -403,7 +514,7 @@ func TestPreflightAllowsCheapRequest(t *testing.T) {
 		},
 	}, logger)
 
-	p := New(reg, m, rec, budgetMgr, nil, logger)
+	p := New(reg, m, rec, budgetMgr, nil, nil, logger)
 
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}],"max_tokens":100}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))

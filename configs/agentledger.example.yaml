@@ -40,3 +40,13 @@ recording:
 # circuit_breaker:
 #   max_failures: 5       # consecutive 5xx before opening circuit
 #   timeout_secs: 30      # seconds before trying again (half-open)
+
+# Agent session tracking (optional — omit or set thresholds to 0 to disable)
+# agent:
+#   session_timeout_mins: 30    # auto-expire idle sessions
+#   loop_threshold: 20          # same path N times in window = loop (0 = disabled)
+#   loop_window_mins: 5         # sliding window for loop detection
+#   loop_action: "warn"         # "warn" logs only, "block" returns 429
+#   ghost_max_age_mins: 60      # sessions older than this are ghost candidates (0 = disabled)
+#   ghost_min_calls: 50         # minimum calls before ghost alert
+#   ghost_min_cost_usd: 1.0     # minimum spend before ghost alert

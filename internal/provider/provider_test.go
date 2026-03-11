@@ -81,6 +81,7 @@ func TestExtractAgentHeaders(t *testing.T) {
 			"X-Agent-User":    {"user@test.com"},
 			"X-Agent-Task":    {"Review PR #456"},
 		},
+		URL: mustParseURL("http://localhost/v1/chat/completions"),
 	}
 
 	agentID, sessionID, userID, task := ExtractAgentHeaders(r)
@@ -95,6 +96,49 @@ func TestExtractAgentHeaders(t *testing.T) {
 	}
 	if task != "Review PR #456" {
 		t.Errorf("task = %q, want %q", task, "Review PR #456")
+	}
+}
+
+func TestExtractAgentHeaders_QueryParamFallback(t *testing.T) {
+	r := &http.Request{
+		Header: http.Header{},
+		URL:    mustParseURL("http://localhost/v1/chat/completions?_agent_id=qa-bot&_agent_session=sess_qp&_agent_user=ci@test.com&_agent_task=Run+tests"),
+	}
+
+	agentID, sessionID, userID, task := ExtractAgentHeaders(r)
+	if agentID != "qa-bot" {
+		t.Errorf("agentID = %q, want %q", agentID, "qa-bot")
+	}
+	if sessionID != "sess_qp" {
+		t.Errorf("sessionID = %q, want %q", sessionID, "sess_qp")
+	}
+	if userID != "ci@test.com" {
+		t.Errorf("userID = %q, want %q", userID, "ci@test.com")
+	}
+	if task != "Run tests" {
+		t.Errorf("task = %q, want %q", task, "Run tests")
+	}
+}
+
+func TestExtractAgentHeaders_HeadersOverrideQueryParams(t *testing.T) {
+	r := &http.Request{
+		Header: http.Header{
+			"X-Agent-Id":      {"from-header"},
+			"X-Agent-Session": {"sess_header"},
+		},
+		URL: mustParseURL("http://localhost/v1/chat/completions?_agent_id=from-query&_agent_session=sess_query&_agent_user=qp@test.com"),
+	}
+
+	agentID, sessionID, userID, _ := ExtractAgentHeaders(r)
+	if agentID != "from-header" {
+		t.Errorf("agentID = %q, want %q (headers should take priority)", agentID, "from-header")
+	}
+	if sessionID != "sess_header" {
+		t.Errorf("sessionID = %q, want %q (headers should take priority)", sessionID, "sess_header")
+	}
+	// userID only in query params — should fall back.
+	if userID != "qp@test.com" {
+		t.Errorf("userID = %q, want %q (should fall back to query param)", userID, "qp@test.com")
 	}
 }
 

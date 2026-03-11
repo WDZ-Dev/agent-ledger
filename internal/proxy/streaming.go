@@ -10,6 +10,7 @@ import (
 
 	"github.com/oklog/ulid/v2"
 
+	"github.com/WDZ-Dev/agent-ledger/internal/agent"
 	"github.com/WDZ-Dev/agent-ledger/internal/ledger"
 	"github.com/WDZ-Dev/agent-ledger/internal/meter"
 	"github.com/WDZ-Dev/agent-ledger/internal/provider"
@@ -23,6 +24,7 @@ type streamInterceptor struct {
 	reqMeta  *provider.RequestMeta
 	meter    *meter.Meter
 	recorder *ledger.Recorder
+	tracker  *agent.Tracker
 	logger   *slog.Logger
 
 	parseBuf bytes.Buffer // accumulates raw bytes for SSE parsing
@@ -48,6 +50,7 @@ func newStreamInterceptor(
 	reqMeta *provider.RequestMeta,
 	m *meter.Meter,
 	recorder *ledger.Recorder,
+	tracker *agent.Tracker,
 	logger *slog.Logger,
 	start time.Time,
 	apiKeyHash, path string,
@@ -59,6 +62,7 @@ func newStreamInterceptor(
 		reqMeta:    reqMeta,
 		meter:      m,
 		recorder:   recorder,
+		tracker:    tracker,
 		logger:     logger,
 		start:      start,
 		apiKeyHash: apiKeyHash,
@@ -193,6 +197,11 @@ func (s *streamInterceptor) finalize() {
 			UserID:       s.userID,
 		}
 		s.recorder.Record(record)
+
+		// Update agent session cost.
+		if s.tracker != nil && s.sessionID != "" {
+			s.tracker.RecordCost(s.sessionID, cost, s.inputTokens+s.outputTokens)
+		}
 
 		s.logger.Info("stream",
 			"provider", s.prov.Name(),

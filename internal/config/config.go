@@ -16,6 +16,7 @@ type Config struct {
 	Recording      RecordingConfig `mapstructure:"recording"`
 	Budgets        BudgetsConfig   `mapstructure:"budgets"`
 	CircuitBreaker CBConfig        `mapstructure:"circuit_breaker"`
+	Agent          AgentConfig     `mapstructure:"agent"`
 }
 
 // ProvidersConfig holds per-provider settings.
@@ -69,6 +70,17 @@ type CBConfig struct {
 	TimeoutSecs int64 `mapstructure:"timeout_secs"`
 }
 
+// AgentConfig holds agent session tracking settings.
+type AgentConfig struct {
+	SessionTimeoutMins int     `mapstructure:"session_timeout_mins"`
+	LoopThreshold      int     `mapstructure:"loop_threshold"`
+	LoopWindowMins     int     `mapstructure:"loop_window_mins"`
+	LoopAction         string  `mapstructure:"loop_action"`
+	GhostMaxAgeMins    int     `mapstructure:"ghost_max_age_mins"`
+	GhostMinCalls      int     `mapstructure:"ghost_min_calls"`
+	GhostMinCostUSD    float64 `mapstructure:"ghost_min_cost_usd"`
+}
+
 // Load reads configuration from the given file path, environment variables,
 // and defaults.
 func Load(path string) (*Config, error) {
@@ -86,6 +98,13 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("log.format", "text")
 	v.SetDefault("recording.buffer_size", 10000)
 	v.SetDefault("recording.workers", 4)
+	v.SetDefault("agent.session_timeout_mins", 30)
+	v.SetDefault("agent.loop_threshold", 0)
+	v.SetDefault("agent.loop_window_mins", 5)
+	v.SetDefault("agent.loop_action", "warn")
+	v.SetDefault("agent.ghost_max_age_mins", 0)
+	v.SetDefault("agent.ghost_min_calls", 50)
+	v.SetDefault("agent.ghost_min_cost_usd", 1.0)
 
 	// Environment variables: AGENTLEDGER_LISTEN, AGENTLEDGER_STORAGE_DSN, etc.
 	v.SetEnvPrefix("AGENTLEDGER")
