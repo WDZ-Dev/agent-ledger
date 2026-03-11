@@ -100,14 +100,20 @@ func (bt *BreakerTransport) recordSuccess() {
 	bt.state.Store(int32(stateClosed))
 }
 
+const (
+	stateNameClosed   = "closed"
+	stateNameOpen     = "open"
+	stateNameHalfOpen = "half-open"
+)
+
 // State returns the current circuit breaker state as a string.
 func (bt *BreakerTransport) State() string {
 	switch breakerState(bt.state.Load()) {
 	case stateOpen:
-		return "open"
+		return stateNameOpen
 	case stateHalfOpen:
-		return "half-open"
+		return stateNameHalfOpen
 	default:
-		return "closed"
+		return stateNameClosed
 	}
 }

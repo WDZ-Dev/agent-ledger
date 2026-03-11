@@ -23,7 +23,7 @@ func TestBreakerClosedOnSuccess(t *testing.T) {
 	}
 	_ = resp.Body.Close()
 
-	if bt.State() != "closed" {
+	if bt.State() != stateNameClosed {
 		t.Errorf("state = %q, want closed", bt.State())
 	}
 }
@@ -45,7 +45,7 @@ func TestBreakerOpensAfterFailures(t *testing.T) {
 		_ = resp.Body.Close()
 	}
 
-	if bt.State() != "open" {
+	if bt.State() != stateNameOpen {
 		t.Errorf("state = %q, want open after 3 failures", bt.State())
 	}
 
@@ -80,7 +80,7 @@ func TestBreakerRecoverAfterTimeout(t *testing.T) {
 		}
 	}
 
-	if bt.State() != "open" {
+	if bt.State() != stateNameOpen {
 		t.Fatal("expected open state")
 	}
 
@@ -97,7 +97,7 @@ func TestBreakerRecoverAfterTimeout(t *testing.T) {
 	}
 	_ = resp.Body.Close()
 
-	if bt.State() != "closed" {
+	if bt.State() != stateNameClosed {
 		t.Errorf("state = %q, want closed after recovery", bt.State())
 	}
 }
