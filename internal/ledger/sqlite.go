@@ -86,10 +86,14 @@ func (s *SQLite) QueryCosts(ctx context.Context, filter CostFilter) ([]CostEntry
 		groupCol = "provider"
 	case "key":
 		groupCol = "api_key_hash"
+	case "agent":
+		groupCol = "agent_id"
+	case "session":
+		groupCol = "session_id"
 	}
 
 	q := fmt.Sprintf(`SELECT
-		provider, model, api_key_hash,
+		provider, model, api_key_hash, agent_id, session_id,
 		COUNT(*) as requests,
 		COALESCE(SUM(input_tokens), 0),
 		COALESCE(SUM(output_tokens), 0),
@@ -108,8 +112,8 @@ func (s *SQLite) QueryCosts(ctx context.Context, filter CostFilter) ([]CostEntry
 	var entries []CostEntry
 	for rows.Next() {
 		var e CostEntry
-		if err := rows.Scan(&e.Provider, &e.Model, &e.APIKeyHash, &e.Requests,
-			&e.InputTokens, &e.OutputTokens, &e.TotalCostUSD); err != nil {
+		if err := rows.Scan(&e.Provider, &e.Model, &e.APIKeyHash, &e.AgentID, &e.SessionID,
+			&e.Requests, &e.InputTokens, &e.OutputTokens, &e.TotalCostUSD); err != nil {
 			return nil, fmt.Errorf("scanning cost entry: %w", err)
 		}
 		entries = append(entries, e)

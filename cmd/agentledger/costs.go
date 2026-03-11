@@ -13,6 +13,19 @@ import (
 	"github.com/WDZ-Dev/agent-ledger/internal/ledger"
 )
 
+const (
+	groupByAgent   = "agent"
+	groupBySession = "session"
+	displayNone    = "(none)"
+)
+
+func orNone(s string) string {
+	if s == "" {
+		return displayNone
+	}
+	return s
+}
+
 func costsCmd() *cobra.Command {
 	var (
 		configPath string
@@ -30,7 +43,7 @@ func costsCmd() *cobra.Command {
 
 	cmd.Flags().StringVarP(&configPath, "config", "c", "", "path to config file")
 	cmd.Flags().StringVar(&last, "last", "24h", "time window (e.g., 1h, 24h, 7d)")
-	cmd.Flags().StringVar(&groupBy, "by", "model", "group by: model, provider, key")
+	cmd.Flags().StringVar(&groupBy, "by", "model", "group by: model, provider, key, agent, session")
 
 	return cmd
 }
@@ -70,26 +83,58 @@ func runCosts(configPath, last, groupBy string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	_, _ = fmt.Fprintln(w, "PROVIDER\tMODEL\tREQUESTS\tINPUT TOKENS\tOUTPUT TOKENS\tCOST (USD)")
-	_, _ = fmt.Fprintln(w, "--------\t-----\t--------\t------------\t-------------\t----------")
+
+	switch groupBy {
+	case groupByAgent:
+		_, _ = fmt.Fprintln(w, "AGENT\tREQUESTS\tINPUT TOKENS\tOUTPUT TOKENS\tCOST (USD)")
+		_, _ = fmt.Fprintln(w, "-----\t--------\t------------\t-------------\t----------")
+	case groupBySession:
+		_, _ = fmt.Fprintln(w, "AGENT\tSESSION\tREQUESTS\tINPUT TOKENS\tOUTPUT TOKENS\tCOST (USD)")
+		_, _ = fmt.Fprintln(w, "-----\t-------\t--------\t------------\t-------------\t----------")
+	default:
+		_, _ = fmt.Fprintln(w, "PROVIDER\tMODEL\tREQUESTS\tINPUT TOKENS\tOUTPUT TOKENS\tCOST (USD)")
+		_, _ = fmt.Fprintln(w, "--------\t-----\t--------\t------------\t-------------\t----------")
+	}
 
 	var totalReqs int
 	var totalIn, totalOut int64
 	var totalCost float64
 
 	for _, e := range entries {
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%d\t$%.4f\n",
-			e.Provider, e.Model, e.Requests,
-			e.InputTokens, e.OutputTokens, e.TotalCostUSD)
+		switch groupBy {
+		case groupByAgent:
+			_, _ = fmt.Fprintf(w, "%s\t%d\t%d\t%d\t$%.4f\n",
+				orNone(e.AgentID), e.Requests,
+				e.InputTokens, e.OutputTokens, e.TotalCostUSD)
+		case groupBySession:
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%d\t$%.4f\n",
+				orNone(e.AgentID), orNone(e.SessionID), e.Requests,
+				e.InputTokens, e.OutputTokens, e.TotalCostUSD)
+		default:
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%d\t$%.4f\n",
+				e.Provider, e.Model, e.Requests,
+				e.InputTokens, e.OutputTokens, e.TotalCostUSD)
+		}
 		totalReqs += e.Requests
 		totalIn += e.InputTokens
 		totalOut += e.OutputTokens
 		totalCost += e.TotalCostUSD
 	}
 
-	_, _ = fmt.Fprintln(w, "--------\t-----\t--------\t------------\t-------------\t----------")
-	_, _ = fmt.Fprintf(w, "TOTAL\t\t%d\t%d\t%d\t$%.4f\n",
-		totalReqs, totalIn, totalOut, totalCost)
+	switch groupBy {
+	case groupByAgent:
+		_, _ = fmt.Fprintln(w, "-----\t--------\t------------\t-------------\t----------")
+		_, _ = fmt.Fprintf(w, "TOTAL\t%d\t%d\t%d\t$%.4f\n",
+			totalReqs, totalIn, totalOut, totalCost)
+	case groupBySession:
+		_, _ = fmt.Fprintln(w, "-----\t-------\t--------\t------------\t-------------\t----------")
+		_, _ = fmt.Fprintf(w, "TOTAL\t\t%d\t%d\t%d\t$%.4f\n",
+			totalReqs, totalIn, totalOut, totalCost)
+	default:
+		_, _ = fmt.Fprintln(w, "--------\t-----\t--------\t------------\t-------------\t----------")
+		_, _ = fmt.Fprintf(w, "TOTAL\t\t%d\t%d\t%d\t$%.4f\n",
+			totalReqs, totalIn, totalOut, totalCost)
+	}
 	return w.Flush()
 }
 

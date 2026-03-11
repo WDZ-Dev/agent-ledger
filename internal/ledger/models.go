@@ -26,7 +26,7 @@ type UsageRecord struct {
 type CostFilter struct {
 	Since   time.Time
 	Until   time.Time
-	GroupBy string // "model", "provider", "key"
+	GroupBy string // "model", "provider", "key", "agent", "session"
 }
 
 // CostEntry is an aggregated cost row returned by QueryCosts.
@@ -34,6 +34,8 @@ type CostEntry struct {
 	Provider     string
 	Model        string
 	APIKeyHash   string
+	AgentID      string
+	SessionID    string
 	Requests     int
 	InputTokens  int64
 	OutputTokens int64
