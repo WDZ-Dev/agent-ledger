@@ -68,11 +68,11 @@ export ANTHROPIC_BASE_URL=http://localhost:8787
 ```
 PROVIDER   MODEL            REQUESTS   INPUT TOKENS   OUTPUT TOKENS   COST (USD)
 --------   -----            --------   ------------   -------------   ----------
-openai     gpt-4o-mini      142        28400          14200           $0.0128
-openai     gpt-4o           38         19000          9500            $0.1425
+openai     gpt-4.1-mini     142        28400          14200           $0.0341
+openai     gpt-4.1          38         19000          9500            $0.1140
 anthropic  claude-sonnet-4   12         6000           3000            $0.0630
 --------   -----            --------   ------------   -------------   ----------
-TOTAL                       192        53400          26700           $0.2183
+TOTAL                       192        53400          26700           $0.2111
 ```
 
 ## Architecture
@@ -116,8 +116,8 @@ Every request is metered with provider-reported token counts. When streaming res
 
 | Provider | Models |
 |----------|--------|
-| OpenAI | gpt-4o, gpt-4o-mini, gpt-4-turbo, gpt-4, gpt-3.5-turbo, o1, o1-mini, o3, o3-mini, o4-mini |
-| Anthropic | claude-opus-4, claude-sonnet-4, claude-3.5-sonnet, claude-3.5-haiku, claude-3-opus, claude-3-sonnet, claude-3-haiku |
+| OpenAI | gpt-4.1, gpt-4.1-mini, gpt-4.1-nano, gpt-4o, gpt-4o-mini, o3, o3-mini, o4-mini, o1, o1-mini, gpt-4-turbo, gpt-4, gpt-3.5-turbo |
+| Anthropic | claude-opus-4, claude-sonnet-4, claude-haiku-4, claude-3.5-sonnet, claude-3.5-haiku, claude-3-opus, claude-3-sonnet, claude-3-haiku |
 
 Versioned model names (e.g., `gpt-4o-2024-11-20`) are matched via longest prefix.
 
@@ -330,7 +330,7 @@ agent-ledger/
 │   │   └── registry.go        Auto-detect provider from request
 │   ├── meter/                 Cost calculation
 │   │   ├── meter.go           Token-to-USD conversion
-│   │   ├── pricing.go         Model pricing table (17 models)
+│   │   ├── pricing.go         Model pricing table (20 models)
 │   │   └── estimator.go       Tiktoken fallback estimation
 │   ├── ledger/                Storage layer
 │   │   ├── ledger.go          Ledger interface
