@@ -62,6 +62,7 @@ func encodingForModel(model string) string {
 		prefix   string
 		encoding string
 	}{
+		{"gpt-4.1", "o200k_base"},
 		{"gpt-4o", "o200k_base"},
 		{"o1", "o200k_base"},
 		{"o3", "o200k_base"},

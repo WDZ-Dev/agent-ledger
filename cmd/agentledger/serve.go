@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/WDZ-Dev/agent-ledger/internal/budget"
 	"github.com/WDZ-Dev/agent-ledger/internal/config"
 	"github.com/WDZ-Dev/agent-ledger/internal/ledger"
 	"github.com/WDZ-Dev/agent-ledger/internal/meter"
@@ -59,8 +60,52 @@ func runServe(configPath string) error {
 	// Cost meter
 	m := meter.New()
 
+	// Budget manager
+	var budgetMgr *budget.Manager
+	budgetCfg := budget.Config{
+		Default: budget.Rule{
+			APIKeyPattern:   cfg.Budgets.Default.APIKeyPattern,
+			DailyLimitUSD:   cfg.Budgets.Default.DailyLimitUSD,
+			MonthlyLimitUSD: cfg.Budgets.Default.MonthlyLimitUSD,
+			SoftLimitPct:    cfg.Budgets.Default.SoftLimitPct,
+			Action:          cfg.Budgets.Default.Action,
+		},
+	}
+	for _, r := range cfg.Budgets.Rules {
+		budgetCfg.Rules = append(budgetCfg.Rules, budget.Rule{
+			APIKeyPattern:   r.APIKeyPattern,
+			DailyLimitUSD:   r.DailyLimitUSD,
+			MonthlyLimitUSD: r.MonthlyLimitUSD,
+			SoftLimitPct:    r.SoftLimitPct,
+			Action:          r.Action,
+		})
+	}
+	budgetMgr = budget.NewManager(store, budgetCfg, logger)
+	if budgetMgr.Enabled() {
+		logger.Info("budget enforcement enabled")
+	}
+
+	// Circuit breaker transport (optional)
+	var transport http.RoundTripper
+	if cfg.CircuitBreaker.MaxFailures > 0 {
+		base := &http.Transport{
+			MaxIdleConnsPerHost:   50,
+			IdleConnTimeout:       90 * time.Second,
+			ResponseHeaderTimeout: 120 * time.Second,
+		}
+		timeout := time.Duration(cfg.CircuitBreaker.TimeoutSecs) * time.Second
+		if timeout == 0 {
+			timeout = 30 * time.Second
+		}
+		transport = budget.NewBreakerTransport(base, int64(cfg.CircuitBreaker.MaxFailures), timeout)
+		logger.Info("circuit breaker enabled",
+			"max_failures", cfg.CircuitBreaker.MaxFailures,
+			"timeout_secs", cfg.CircuitBreaker.TimeoutSecs,
+		)
+	}
+
 	// Proxy
-	p := proxy.New(reg, m, rec, logger)
+	p := proxy.New(reg, m, rec, budgetMgr, transport, logger)
 
 	srv := &http.Server{
 		Addr:              cfg.Listen,

@@ -15,6 +15,7 @@ import (
 
 	"github.com/oklog/ulid/v2"
 
+	"github.com/WDZ-Dev/agent-ledger/internal/budget"
 	"github.com/WDZ-Dev/agent-ledger/internal/ledger"
 	"github.com/WDZ-Dev/agent-ledger/internal/meter"
 	"github.com/WDZ-Dev/agent-ledger/internal/provider"
@@ -32,6 +33,7 @@ const (
 	ctxAgentID
 	ctxSessionID
 	ctxUserID
+	ctxBudgetResult
 )
 
 // Proxy is the core reverse proxy that intercepts LLM API calls,
@@ -41,22 +43,28 @@ type Proxy struct {
 	registry *provider.Registry
 	meter    *meter.Meter
 	recorder *ledger.Recorder
+	budget   *budget.Manager
 	logger   *slog.Logger
 }
 
-// New creates a Proxy wired to the given registry, meter, and recorder.
-func New(registry *provider.Registry, m *meter.Meter, recorder *ledger.Recorder, logger *slog.Logger) *Proxy {
+// New creates a Proxy wired to the given registry, meter, recorder, and
+// optional budget manager. Pass nil for budgetMgr to disable budget enforcement.
+// Pass nil for transport to use the default pooled transport.
+func New(registry *provider.Registry, m *meter.Meter, recorder *ledger.Recorder, budgetMgr *budget.Manager, transport http.RoundTripper, logger *slog.Logger) *Proxy {
 	p := &Proxy{
 		registry: registry,
 		meter:    m,
 		recorder: recorder,
+		budget:   budgetMgr,
 		logger:   logger,
 	}
 
-	transport := &http.Transport{
-		MaxIdleConnsPerHost:   50,
-		IdleConnTimeout:       90 * time.Second,
-		ResponseHeaderTimeout: 120 * time.Second,
+	if transport == nil {
+		transport = &http.Transport{
+			MaxIdleConnsPerHost:   50,
+			IdleConnTimeout:       90 * time.Second,
+			ResponseHeaderTimeout: 120 * time.Second,
+		}
 	}
 
 	p.rp = &httputil.ReverseProxy{
@@ -104,6 +112,45 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Extract agent headers before stripping.
 	agentID, sessionID, userID, _ := provider.ExtractAgentHeaders(r)
 
+	// Budget check: reject or warn before forwarding.
+	var budgetResult *budget.Result
+	if p.budget != nil && p.budget.Enabled() {
+		br := p.budget.Check(r.Context(), apiKey, apiKeyHash)
+		budgetResult = &br
+		if br.Decision == budget.Block {
+			p.logger.Warn("budget exceeded",
+				"api_key_hash", apiKeyHash,
+				"daily_spent", br.DailySpent,
+				"daily_limit", br.DailyLimit,
+				"monthly_spent", br.MonthlySpent,
+				"monthly_limit", br.MonthlyLimit,
+			)
+			writeBudgetError(w, br)
+			return
+		}
+
+		// Pre-flight: estimate worst-case cost from max_tokens and reject
+		// if it would exceed remaining budget.
+		if reqMeta != nil && reqMeta.MaxTokens > 0 {
+			worstCase := p.meter.Calculate(reqMeta.Model, 0, reqMeta.MaxTokens)
+			if worstCase > 0 {
+				dailyRemaining := br.DailyLimit - br.DailySpent
+				monthlyRemaining := br.MonthlyLimit - br.MonthlySpent
+				if (br.DailyLimit > 0 && worstCase > dailyRemaining) ||
+					(br.MonthlyLimit > 0 && worstCase > monthlyRemaining) {
+					p.logger.Warn("pre-flight budget rejection",
+						"api_key_hash", apiKeyHash,
+						"model", reqMeta.Model,
+						"max_tokens", reqMeta.MaxTokens,
+						"estimated_cost", worstCase,
+					)
+					writePreflightError(w, br, worstCase)
+					return
+				}
+			}
+		}
+	}
+
 	// Store everything in context for ModifyResponse.
 	ctx := r.Context()
 	ctx = context.WithValue(ctx, ctxProvider, prov)
@@ -114,6 +161,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx = context.WithValue(ctx, ctxAgentID, agentID)
 	ctx = context.WithValue(ctx, ctxSessionID, sessionID)
 	ctx = context.WithValue(ctx, ctxUserID, userID)
+	ctx = context.WithValue(ctx, ctxBudgetResult, budgetResult)
 
 	r = r.WithContext(ctx)
 	r.Body = io.NopCloser(bytes.NewReader(body))
@@ -155,6 +203,13 @@ func (p *Proxy) modifyResponse(resp *http.Response) error {
 
 	if prov == nil {
 		return nil
+	}
+
+	// Add budget warning header if nearing limit.
+	if br, ok := ctx.Value(ctxBudgetResult).(*budget.Result); ok && br != nil && br.Decision == budget.Warn {
+		resp.Header.Set("X-AgentLedger-Budget-Warning",
+			fmt.Sprintf("daily=%.2f/%.2f monthly=%.2f/%.2f",
+				br.DailySpent, br.DailyLimit, br.MonthlySpent, br.MonthlyLimit))
 	}
 
 	isStream := strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
@@ -241,6 +296,37 @@ func writeJSONError(w http.ResponseWriter, status int, msg string) {
 		"error": map[string]any{
 			"type":    "proxy_error",
 			"message": msg,
+		},
+	})
+}
+
+func writePreflightError(w http.ResponseWriter, br budget.Result, estimatedCost float64) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusTooManyRequests)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"error": map[string]any{
+			"type":           "budget_exceeded",
+			"message":        "estimated cost of request exceeds remaining budget",
+			"estimated_cost": estimatedCost,
+			"daily_spent":    br.DailySpent,
+			"daily_limit":    br.DailyLimit,
+			"monthly_spent":  br.MonthlySpent,
+			"monthly_limit":  br.MonthlyLimit,
+		},
+	})
+}
+
+func writeBudgetError(w http.ResponseWriter, br budget.Result) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusTooManyRequests)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"error": map[string]any{
+			"type":          "budget_exceeded",
+			"message":       "spending limit exceeded",
+			"daily_spent":   br.DailySpent,
+			"daily_limit":   br.DailyLimit,
+			"monthly_spent": br.MonthlySpent,
+			"monthly_limit": br.MonthlyLimit,
 		},
 	})
 }

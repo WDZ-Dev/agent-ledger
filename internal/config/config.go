@@ -9,11 +9,13 @@ import (
 
 // Config holds all application configuration.
 type Config struct {
-	Listen    string          `mapstructure:"listen"`
-	Providers ProvidersConfig `mapstructure:"providers"`
-	Storage   StorageConfig   `mapstructure:"storage"`
-	Log       LogConfig       `mapstructure:"log"`
-	Recording RecordingConfig `mapstructure:"recording"`
+	Listen         string          `mapstructure:"listen"`
+	Providers      ProvidersConfig `mapstructure:"providers"`
+	Storage        StorageConfig   `mapstructure:"storage"`
+	Log            LogConfig       `mapstructure:"log"`
+	Recording      RecordingConfig `mapstructure:"recording"`
+	Budgets        BudgetsConfig   `mapstructure:"budgets"`
+	CircuitBreaker CBConfig        `mapstructure:"circuit_breaker"`
 }
 
 // ProvidersConfig holds per-provider settings.
@@ -44,6 +46,27 @@ type LogConfig struct {
 type RecordingConfig struct {
 	BufferSize int `mapstructure:"buffer_size"`
 	Workers    int `mapstructure:"workers"`
+}
+
+// BudgetsConfig holds budget enforcement settings.
+type BudgetsConfig struct {
+	Default BudgetRuleConfig   `mapstructure:"default"`
+	Rules   []BudgetRuleConfig `mapstructure:"rules"`
+}
+
+// BudgetRuleConfig defines budget limits for a set of API keys.
+type BudgetRuleConfig struct {
+	APIKeyPattern   string  `mapstructure:"api_key_pattern"`
+	DailyLimitUSD   float64 `mapstructure:"daily_limit_usd"`
+	MonthlyLimitUSD float64 `mapstructure:"monthly_limit_usd"`
+	SoftLimitPct    float64 `mapstructure:"soft_limit_pct"`
+	Action          string  `mapstructure:"action"`
+}
+
+// CBConfig holds circuit breaker settings.
+type CBConfig struct {
+	MaxFailures int   `mapstructure:"max_failures"`
+	TimeoutSecs int64 `mapstructure:"timeout_secs"`
 }
 
 // Load reads configuration from the given file path, environment variables,

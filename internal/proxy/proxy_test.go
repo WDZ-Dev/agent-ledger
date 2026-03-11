@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/WDZ-Dev/agent-ledger/internal/budget"
 	"github.com/WDZ-Dev/agent-ledger/internal/config"
 	"github.com/WDZ-Dev/agent-ledger/internal/ledger"
 	"github.com/WDZ-Dev/agent-ledger/internal/meter"
@@ -20,7 +21,8 @@ import (
 
 // mockStore implements ledger.Ledger for testing.
 type mockStore struct {
-	records []*ledger.UsageRecord
+	records    []*ledger.UsageRecord
+	totalSpend float64
 }
 
 func (m *mockStore) RecordUsage(_ context.Context, record *ledger.UsageRecord) error {
@@ -33,7 +35,7 @@ func (m *mockStore) QueryCosts(_ context.Context, _ ledger.CostFilter) ([]ledger
 }
 
 func (m *mockStore) GetTotalSpend(_ context.Context, _ string, _, _ time.Time) (float64, error) {
-	return 0, nil
+	return m.totalSpend, nil
 }
 
 func (m *mockStore) Close() error { return nil }
@@ -57,7 +59,7 @@ func setupTestProxy(t *testing.T, upstream *httptest.Server) (*Proxy, *ledger.Re
 	})
 
 	m := meter.New()
-	p := New(reg, m, rec, logger)
+	p := New(reg, m, rec, nil, nil, logger)
 	return p, rec, store
 }
 
@@ -228,5 +230,189 @@ func TestAgentHeadersStripped(t *testing.T) {
 	}
 	if receivedHeaders.Get("Authorization") == "" {
 		t.Error("Authorization should be preserved")
+	}
+}
+
+func TestBudgetBlocks429(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"model":"gpt-4o-mini","usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
+	}))
+	defer upstream.Close()
+
+	store := &mockStore{totalSpend: 100.0}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	rec := ledger.NewRecorder(store, 100, 1, logger)
+	t.Cleanup(func() { rec.Close() })
+
+	reg := provider.NewRegistry(config.ProvidersConfig{
+		OpenAI: config.ProviderConfig{Upstream: upstream.URL, Enabled: true},
+	})
+	m := meter.New()
+
+	budgetMgr := budget.NewManager(store, budget.Config{
+		Default: budget.Rule{
+			DailyLimitUSD: 10.0,
+			Action:        "block",
+		},
+	}, logger)
+
+	p := New(reg, m, rec, budgetMgr, nil, logger)
+
+	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`
+	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer sk-proj-test1234abcd")
+	w := httptest.NewRecorder()
+
+	p.ServeHTTP(w, req)
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("status = %d, want 429", w.Code)
+	}
+
+	var errResp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&errResp); err != nil {
+		t.Fatal(err)
+	}
+	errObj, _ := errResp["error"].(map[string]any)
+	if errObj["type"] != "budget_exceeded" {
+		t.Errorf("error type = %v, want budget_exceeded", errObj["type"])
+	}
+}
+
+func TestBudgetWarningHeader(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"model":"gpt-4o-mini","usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
+	}))
+	defer upstream.Close()
+
+	// Spend is 85% of daily limit — should trigger soft warning.
+	store := &mockStore{totalSpend: 8.5}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	rec := ledger.NewRecorder(store, 100, 1, logger)
+	t.Cleanup(func() { rec.Close() })
+
+	reg := provider.NewRegistry(config.ProvidersConfig{
+		OpenAI: config.ProviderConfig{Upstream: upstream.URL, Enabled: true},
+	})
+	m := meter.New()
+
+	budgetMgr := budget.NewManager(store, budget.Config{
+		Default: budget.Rule{
+			DailyLimitUSD: 10.0,
+			SoftLimitPct:  0.8,
+			Action:        "block",
+		},
+	}, logger)
+
+	p := New(reg, m, rec, budgetMgr, nil, logger)
+
+	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`
+	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer sk-proj-test1234abcd")
+	w := httptest.NewRecorder()
+
+	p.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("status = %d, want 200 (soft limit = warn, not block)", w.Code)
+	}
+
+	warning := w.Header().Get("X-AgentLedger-Budget-Warning")
+	if warning == "" {
+		t.Error("expected X-AgentLedger-Budget-Warning header")
+	}
+}
+
+func TestPreflightRejectsExpensiveRequest(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("request should not reach upstream")
+		w.WriteHeader(200)
+	}))
+	defer upstream.Close()
+
+	// $0.50 remaining daily budget. gpt-4o-mini output is $0.60/MTok,
+	// so 1M max_tokens would cost $0.60 — exceeds remaining.
+	store := &mockStore{totalSpend: 9.50}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	rec := ledger.NewRecorder(store, 100, 1, logger)
+	t.Cleanup(func() { rec.Close() })
+
+	reg := provider.NewRegistry(config.ProvidersConfig{
+		OpenAI: config.ProviderConfig{Upstream: upstream.URL, Enabled: true},
+	})
+	m := meter.New()
+
+	budgetMgr := budget.NewManager(store, budget.Config{
+		Default: budget.Rule{
+			DailyLimitUSD: 10.0,
+			Action:        "block",
+		},
+	}, logger)
+
+	p := New(reg, m, rec, budgetMgr, nil, logger)
+
+	// max_tokens=1000000 → worst-case output cost = $0.60 > $0.50 remaining
+	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}],"max_tokens":1000000}`
+	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer sk-proj-test1234abcd")
+	w := httptest.NewRecorder()
+
+	p.ServeHTTP(w, req)
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("status = %d, want 429 (pre-flight rejection)", w.Code)
+	}
+
+	var errResp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&errResp); err != nil {
+		t.Fatal(err)
+	}
+	errObj, _ := errResp["error"].(map[string]any)
+	if errObj["type"] != "budget_exceeded" {
+		t.Errorf("error type = %v, want budget_exceeded", errObj["type"])
+	}
+	if errObj["estimated_cost"] == nil {
+		t.Error("expected estimated_cost in pre-flight error")
+	}
+}
+
+func TestPreflightAllowsCheapRequest(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"model":"gpt-4o-mini","usage":{"prompt_tokens":5,"completion_tokens":10,"total_tokens":15}}`)
+	}))
+	defer upstream.Close()
+
+	// $5.00 remaining. max_tokens=100 of gpt-4o-mini = $0.00006 — well under.
+	store := &mockStore{totalSpend: 5.0}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	rec := ledger.NewRecorder(store, 100, 1, logger)
+	t.Cleanup(func() { rec.Close() })
+
+	reg := provider.NewRegistry(config.ProvidersConfig{
+		OpenAI: config.ProviderConfig{Upstream: upstream.URL, Enabled: true},
+	})
+	m := meter.New()
+
+	budgetMgr := budget.NewManager(store, budget.Config{
+		Default: budget.Rule{
+			DailyLimitUSD: 10.0,
+			Action:        "block",
+		},
+	}, logger)
+
+	p := New(reg, m, rec, budgetMgr, nil, logger)
+
+	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}],"max_tokens":100}`
+	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer sk-proj-test1234abcd")
+	w := httptest.NewRecorder()
+
+	p.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("status = %d, want 200 (cheap request should pass pre-flight)", w.Code)
 	}
 }
