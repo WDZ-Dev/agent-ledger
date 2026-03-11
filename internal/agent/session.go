@@ -61,9 +61,10 @@ type Tracker struct {
 }
 
 type trackedSession struct {
-	session Session
-	calls   []CallRecord
-	dirty   bool
+	session      Session
+	calls        []CallRecord
+	dirty        bool
+	ghostAlerted bool
 }
 
 const (
@@ -75,6 +76,7 @@ const (
 )
 
 // NewTracker creates a session tracker with background flush and ghost detection.
+// The background goroutine only starts when tracking features are configured.
 func NewTracker(store SessionStore, cfg Config, logger *slog.Logger) *Tracker {
 	t := &Tracker{
 		store:    store,
@@ -84,7 +86,9 @@ func NewTracker(store SessionStore, cfg Config, logger *slog.Logger) *Tracker {
 		sessions: make(map[string]*trackedSession),
 		done:     make(chan struct{}),
 	}
-	go t.backgroundLoop()
+	if t.Enabled() {
+		go t.backgroundLoop()
+	}
 	return t
 }
 
@@ -97,6 +101,8 @@ func (t *Tracker) Enabled() bool {
 // Returns an Alert if a loop is detected.
 func (t *Tracker) TrackCall(sessionID, agentID, userID, task, model, path string) *Alert {
 	t.mu.Lock()
+	defer t.mu.Unlock()
+
 	ts, ok := t.sessions[sessionID]
 	if !ok {
 		ts = &trackedSession{
@@ -124,13 +130,22 @@ func (t *Tracker) TrackCall(sessionID, agentID, userID, task, model, path string
 	ts.calls = append(ts.calls, call)
 	ts.session.CallCount++
 	ts.dirty = true
-	t.mu.Unlock()
 
-	// Loop detection (read lock is fine, we already have the data).
+	// Trim call history older than the loop window to bound memory.
+	if t.detector.loopWindow > 0 && len(ts.calls) > t.cfg.LoopThreshold*10 {
+		cutoff := time.Now().Add(-t.detector.loopWindow)
+		trimIdx := 0
+		for trimIdx < len(ts.calls) && ts.calls[trimIdx].Timestamp.Before(cutoff) {
+			trimIdx++
+		}
+		if trimIdx > 0 {
+			ts.calls = ts.calls[trimIdx:]
+		}
+	}
+
+	// Loop detection runs under the same lock to avoid racing on ts.calls.
 	if t.cfg.LoopThreshold > 0 {
-		t.mu.RLock()
 		alert := t.detector.CheckLoop(ts.calls, path, sessionID, agentID)
-		t.mu.RUnlock()
 		if alert != nil {
 			t.logger.Warn("loop detected",
 				"session_id", sessionID,
@@ -269,15 +284,16 @@ func (t *Tracker) detectGhosts() {
 		return
 	}
 
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+	t.mu.Lock()
+	defer t.mu.Unlock()
 
 	for _, ts := range t.sessions {
-		if ts.session.Status != StatusActive {
+		if ts.session.Status != StatusActive || ts.ghostAlerted {
 			continue
 		}
 		alert := t.detector.CheckGhost(&ts.session)
 		if alert != nil {
+			ts.ghostAlerted = true
 			t.logger.Warn("ghost agent detected",
 				"session_id", ts.session.ID,
 				"agent_id", ts.session.AgentID,

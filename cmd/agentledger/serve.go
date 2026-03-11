@@ -106,7 +106,6 @@ func runServe(configPath string) error {
 	}
 
 	// Agent session tracker
-	var tracker *agent.Tracker
 	agentCfg := agent.Config{
 		SessionTimeoutMins: cfg.Agent.SessionTimeoutMins,
 		LoopThreshold:      cfg.Agent.LoopThreshold,
@@ -116,7 +115,7 @@ func runServe(configPath string) error {
 		GhostMinCalls:      cfg.Agent.GhostMinCalls,
 		GhostMinCostUSD:    cfg.Agent.GhostMinCostUSD,
 	}
-	tracker = agent.NewTracker(store, agentCfg, logger)
+	tracker := agent.NewTracker(store, agentCfg, logger)
 	defer tracker.Close()
 	if tracker.Enabled() {
 		logger.Info("agent session tracking enabled",
