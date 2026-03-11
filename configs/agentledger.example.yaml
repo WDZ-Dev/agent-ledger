@@ -1,0 +1,24 @@
+# AgentLedger configuration
+# See: https://github.com/WDZ-Dev/agent-ledger
+
+listen: ":8787"
+
+providers:
+  openai:
+    upstream: "https://api.openai.com"
+    enabled: true
+  anthropic:
+    upstream: "https://api.anthropic.com"
+    enabled: true
+
+storage:
+  driver: "sqlite"
+  dsn: "data/agentledger.db"
+
+log:
+  level: "info"    # debug, info, warn, error
+  format: "text"   # text or json
+
+recording:
+  buffer_size: 10000   # async recording channel buffer
+  workers: 4           # number of recording goroutines
