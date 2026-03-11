@@ -1,0 +1,29 @@
+pre-commit:
+  parallel: true
+  commands:
+    fmt:
+      glob: "*.go"
+      run: gofmt -l -w {staged_files} && git add {staged_files}
+      stage_fixed: true
+
+    lint:
+      glob: "*.go"
+      run: ~/go/bin/golangci-lint run --fix ./...
+      stage_fixed: true
+
+    vet:
+      glob: "*.go"
+      run: go vet ./...
+
+    test:
+      glob: "*.go"
+      run: go test -race -short -count=1 ./...
+
+pre-push:
+  parallel: true
+  commands:
+    test-full:
+      run: go test -race -cover -count=1 ./...
+
+    vulncheck:
+      run: ~/go/bin/govulncheck ./...
