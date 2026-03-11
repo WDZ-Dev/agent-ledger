@@ -128,6 +128,27 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeBudgetError(w, br)
 			return
 		}
+
+		// Pre-flight: estimate worst-case cost from max_tokens and reject
+		// if it would exceed remaining budget.
+		if reqMeta != nil && reqMeta.MaxTokens > 0 {
+			worstCase := p.meter.Calculate(reqMeta.Model, 0, reqMeta.MaxTokens)
+			if worstCase > 0 {
+				dailyRemaining := br.DailyLimit - br.DailySpent
+				monthlyRemaining := br.MonthlyLimit - br.MonthlySpent
+				if (br.DailyLimit > 0 && worstCase > dailyRemaining) ||
+					(br.MonthlyLimit > 0 && worstCase > monthlyRemaining) {
+					p.logger.Warn("pre-flight budget rejection",
+						"api_key_hash", apiKeyHash,
+						"model", reqMeta.Model,
+						"max_tokens", reqMeta.MaxTokens,
+						"estimated_cost", worstCase,
+					)
+					writePreflightError(w, br, worstCase)
+					return
+				}
+			}
+		}
 	}
 
 	// Store everything in context for ModifyResponse.
@@ -275,6 +296,22 @@ func writeJSONError(w http.ResponseWriter, status int, msg string) {
 		"error": map[string]any{
 			"type":    "proxy_error",
 			"message": msg,
+		},
+	})
+}
+
+func writePreflightError(w http.ResponseWriter, br budget.Result, estimatedCost float64) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusTooManyRequests)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"error": map[string]any{
+			"type":           "budget_exceeded",
+			"message":        "estimated cost of request exceeds remaining budget",
+			"estimated_cost": estimatedCost,
+			"daily_spent":    br.DailySpent,
+			"daily_limit":    br.DailyLimit,
+			"monthly_spent":  br.MonthlySpent,
+			"monthly_limit":  br.MonthlyLimit,
 		},
 	})
 }
