@@ -4,12 +4,23 @@ import "strings"
 
 // Meter calculates costs from token usage and model pricing.
 type Meter struct {
-	pricing map[string]ModelPricing
+	pricing   map[string]ModelPricing
+	estimator *Estimator
 }
 
-// New creates a Meter with the default pricing table.
+// New creates a Meter with the default pricing table and a tiktoken estimator.
 func New() *Meter {
-	return &Meter{pricing: DefaultPricing()}
+	return &Meter{
+		pricing:   DefaultPricing(),
+		estimator: NewEstimator(),
+	}
+}
+
+// EstimateTokens returns an approximate token count for text using the
+// encoding appropriate for the model. Used as a fallback when the API
+// does not report usage (e.g., streaming without include_usage).
+func (m *Meter) EstimateTokens(model, text string) int {
+	return m.estimator.CountTokens(model, text)
 }
 
 // Calculate returns the cost in USD for the given token usage.

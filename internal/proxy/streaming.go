@@ -26,6 +26,7 @@ type streamInterceptor struct {
 	logger   *slog.Logger
 
 	parseBuf bytes.Buffer // accumulates raw bytes for SSE parsing
+	textBuf  bytes.Buffer // accumulates output text for tiktoken fallback
 
 	model        string
 	inputTokens  int
@@ -150,6 +151,9 @@ func (s *streamInterceptor) parseSSEEvent(raw []byte) {
 	if chunk.OutputTokens > 0 {
 		s.outputTokens = chunk.OutputTokens
 	}
+	if chunk.Text != "" {
+		s.textBuf.WriteString(chunk.Text)
+	}
 }
 
 // finalize records the accumulated token usage after the stream ends.
@@ -160,8 +164,15 @@ func (s *streamInterceptor) finalize() {
 			model = s.reqMeta.Model
 		}
 
+		// Tiktoken fallback: estimate output tokens from accumulated text
+		// when the API did not report usage.
+		estimated := false
+		if s.outputTokens == 0 && s.textBuf.Len() > 0 {
+			s.outputTokens = s.meter.EstimateTokens(model, s.textBuf.String())
+			estimated = true
+		}
+
 		cost := s.meter.Calculate(model, s.inputTokens, s.outputTokens)
-		estimated := s.inputTokens == 0 && s.outputTokens == 0
 
 		record := &ledger.UsageRecord{
 			ID:           ulid.Make().String(),

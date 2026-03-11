@@ -72,7 +72,19 @@ func Load(path string) (*Config, error) {
 	// Config file
 	if path != "" {
 		v.SetConfigFile(path)
-		if err := v.ReadInConfig(); err != nil {
+	} else {
+		v.SetConfigName("agentledger")
+		v.SetConfigType("yaml")
+		v.AddConfigPath(".")
+		v.AddConfigPath("./configs")
+		v.AddConfigPath("$HOME/.config/agentledger")
+		v.AddConfigPath("/etc/agentledger")
+	}
+
+	if err := v.ReadInConfig(); err != nil {
+		// Missing config file is fine when using defaults + env vars,
+		// but an explicit path must exist.
+		if path != "" {
 			return nil, fmt.Errorf("reading config %s: %w", path, err)
 		}
 	}

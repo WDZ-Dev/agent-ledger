@@ -72,7 +72,12 @@ func (o *OpenAI) ParseResponse(body []byte) (*ResponseMeta, error) {
 
 // openaiStreamChunk is the minimal subset of an OpenAI streaming chunk.
 type openaiStreamChunk struct {
-	Model string `json:"model"`
+	Model   string `json:"model"`
+	Choices []struct {
+		Delta struct {
+			Content string `json:"content"`
+		} `json:"delta"`
+	} `json:"choices"`
 	Usage *struct {
 		PromptTokens     int `json:"prompt_tokens"`
 		CompletionTokens int `json:"completion_tokens"`
@@ -88,6 +93,10 @@ func (o *OpenAI) ParseStreamChunk(_ string, data []byte) (*StreamChunkMeta, erro
 
 	meta := &StreamChunkMeta{
 		Model: chunk.Model,
+	}
+
+	if len(chunk.Choices) > 0 {
+		meta.Text = chunk.Choices[0].Delta.Content
 	}
 
 	if chunk.Usage != nil {

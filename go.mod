@@ -6,6 +6,7 @@ toolchain go1.24.5
 
 require (
 	github.com/oklog/ulid/v2 v2.1.1
+	github.com/pkoukk/tiktoken-go v0.1.8
 	github.com/pressly/goose/v3 v3.24.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
@@ -13,6 +14,7 @@ require (
 )
 
 require (
+	github.com/dlclark/regexp2 v1.10.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect

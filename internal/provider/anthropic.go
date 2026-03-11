@@ -86,6 +86,10 @@ type anthropicStreamEvent struct {
 			OutputTokens int `json:"output_tokens"`
 		} `json:"usage,omitempty"`
 	} `json:"message,omitempty"`
+	Delta *struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	} `json:"delta,omitempty"`
 	Usage *struct {
 		OutputTokens int `json:"output_tokens"`
 	} `json:"usage,omitempty"`
@@ -106,6 +110,10 @@ func (a *Anthropic) ParseStreamChunk(eventType string, data []byte) (*StreamChun
 			if event.Message.Usage != nil {
 				meta.InputTokens = event.Message.Usage.InputTokens
 			}
+		}
+	case "content_block_delta":
+		if event.Delta != nil && event.Delta.Type == "text_delta" {
+			meta.Text = event.Delta.Text
 		}
 	case "message_delta":
 		if event.Usage != nil {

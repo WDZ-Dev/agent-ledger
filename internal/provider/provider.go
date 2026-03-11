@@ -48,6 +48,7 @@ type StreamChunkMeta struct {
 	Model        string
 	InputTokens  int
 	OutputTokens int
+	Text         string // output text content for tiktoken fallback estimation
 	Done         bool
 }
 
