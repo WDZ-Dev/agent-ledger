@@ -200,6 +200,32 @@ func (t *Tracker) ShouldBlock() bool {
 	return t.cfg.LoopAction == "block"
 }
 
+// ActiveSessionCount returns the number of active sessions in memory.
+func (t *Tracker) ActiveSessionCount() int {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	count := 0
+	for _, ts := range t.sessions {
+		if ts.session.Status == StatusActive {
+			count++
+		}
+	}
+	return count
+}
+
+// ListSessions returns a snapshot of all in-memory sessions.
+func (t *Tracker) ListSessions() []Session {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	sessions := make([]Session, 0, len(t.sessions))
+	for _, ts := range t.sessions {
+		sessions = append(sessions, ts.session)
+	}
+	return sessions
+}
+
 // Close flushes all sessions and stops the background goroutine.
 func (t *Tracker) Close() {
 	t.closed.Do(func() {
