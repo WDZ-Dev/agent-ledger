@@ -35,6 +35,14 @@ type SessionStore interface {
 	ListActiveSessions(ctx context.Context) ([]Session, error)
 }
 
+// MetricsRecorder is an optional metrics sink for session lifecycle events.
+// *otel.Metrics satisfies this interface.
+type MetricsRecorder interface {
+	SessionStarted()
+	SessionEnded()
+	RecordAlert(alertType string)
+}
+
 // Config holds agent tracking settings.
 type Config struct {
 	SessionTimeoutMins int     `mapstructure:"session_timeout_mins"`
@@ -50,6 +58,7 @@ type Config struct {
 type Tracker struct {
 	store    SessionStore
 	detector *Detector
+	metrics  MetricsRecorder
 	logger   *slog.Logger
 	cfg      Config
 
@@ -77,10 +86,12 @@ const (
 
 // NewTracker creates a session tracker with background flush and ghost detection.
 // The background goroutine only starts when tracking features are configured.
-func NewTracker(store SessionStore, cfg Config, logger *slog.Logger) *Tracker {
+// Pass nil for metrics to disable OTel session/alert instrumentation.
+func NewTracker(store SessionStore, cfg Config, metrics MetricsRecorder, logger *slog.Logger) *Tracker {
 	t := &Tracker{
 		store:    store,
 		detector: NewDetector(cfg, logger),
+		metrics:  metrics,
 		logger:   logger,
 		cfg:      cfg,
 		sessions: make(map[string]*trackedSession),
@@ -116,6 +127,9 @@ func (t *Tracker) TrackCall(sessionID, agentID, userID, task, model, path string
 			},
 		}
 		t.sessions[sessionID] = ts
+		if t.metrics != nil {
+			t.metrics.SessionStarted()
+		}
 		t.logger.Info("session started",
 			"session_id", sessionID,
 			"agent_id", agentID,
@@ -147,6 +161,9 @@ func (t *Tracker) TrackCall(sessionID, agentID, userID, task, model, path string
 	if t.cfg.LoopThreshold > 0 {
 		alert := t.detector.CheckLoop(ts.calls, path, sessionID, agentID)
 		if alert != nil {
+			if t.metrics != nil {
+				t.metrics.RecordAlert("loop_detected")
+			}
 			t.logger.Warn("loop detected",
 				"session_id", sessionID,
 				"agent_id", agentID,
@@ -186,6 +203,9 @@ func (t *Tracker) EndSession(sessionID string) {
 	ts.session.EndedAt = &now
 	ts.session.Status = StatusCompleted
 	ts.dirty = true
+	if t.metrics != nil {
+		t.metrics.SessionEnded()
+	}
 
 	t.logger.Info("session ended",
 		"session_id", sessionID,
@@ -297,6 +317,9 @@ func (t *Tracker) expireIdleSessions() {
 			ts.session.EndedAt = &now
 			ts.session.Status = StatusCompleted
 			ts.dirty = true
+			if t.metrics != nil {
+				t.metrics.SessionEnded()
+			}
 			t.logger.Info("session timed out",
 				"session_id", ts.session.ID,
 				"agent_id", ts.session.AgentID,
@@ -320,6 +343,9 @@ func (t *Tracker) detectGhosts() {
 		alert := t.detector.CheckGhost(&ts.session)
 		if alert != nil {
 			ts.ghostAlerted = true
+			if t.metrics != nil {
+				t.metrics.RecordAlert("ghost_detected")
+			}
 			t.logger.Warn("ghost agent detected",
 				"session_id", ts.session.ID,
 				"agent_id", ts.session.AgentID,

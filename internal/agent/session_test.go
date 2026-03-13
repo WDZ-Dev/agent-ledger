@@ -60,7 +60,7 @@ func TestTrackCall_CreatesSession(t *testing.T) {
 		LoopThreshold:      0,
 		GhostMaxAgeMins:    0,
 	}
-	tracker := NewTracker(store, cfg, testLogger())
+	tracker := NewTracker(store, cfg, nil, testLogger())
 	defer tracker.Close()
 
 	alert := tracker.TrackCall("sess1", "agent1", "user1", "test task", "gpt-4o", "/v1/chat/completions")
@@ -97,7 +97,7 @@ func TestTrackCall_LoopDetection(t *testing.T) {
 		LoopWindowMins:     5,
 		LoopAction:         "block",
 	}
-	tracker := NewTracker(store, cfg, testLogger())
+	tracker := NewTracker(store, cfg, nil, testLogger())
 	defer tracker.Close()
 
 	// 3 calls to the same path should trigger loop.
@@ -119,7 +119,7 @@ func TestTrackCall_NoLoopDifferentPaths(t *testing.T) {
 		LoopThreshold:      3,
 		LoopWindowMins:     5,
 	}
-	tracker := NewTracker(store, cfg, testLogger())
+	tracker := NewTracker(store, cfg, nil, testLogger())
 	defer tracker.Close()
 
 	paths := []string{"/v1/chat/completions", "/v1/embeddings", "/v1/models"}
@@ -134,7 +134,7 @@ func TestTrackCall_NoLoopDifferentPaths(t *testing.T) {
 func TestRecordCost(t *testing.T) {
 	store := newStubStore()
 	cfg := Config{SessionTimeoutMins: 30}
-	tracker := NewTracker(store, cfg, testLogger())
+	tracker := NewTracker(store, cfg, nil, testLogger())
 	defer tracker.Close()
 
 	tracker.TrackCall("sess1", "agent1", "user1", "task", "gpt-4o", "/v1/chat/completions")
@@ -156,7 +156,7 @@ func TestRecordCost(t *testing.T) {
 func TestRecordCost_UnknownSession(t *testing.T) {
 	store := newStubStore()
 	cfg := Config{SessionTimeoutMins: 30}
-	tracker := NewTracker(store, cfg, testLogger())
+	tracker := NewTracker(store, cfg, nil, testLogger())
 	defer tracker.Close()
 
 	// Should not panic.
@@ -166,7 +166,7 @@ func TestRecordCost_UnknownSession(t *testing.T) {
 func TestEndSession(t *testing.T) {
 	store := newStubStore()
 	cfg := Config{SessionTimeoutMins: 30}
-	tracker := NewTracker(store, cfg, testLogger())
+	tracker := NewTracker(store, cfg, nil, testLogger())
 	defer tracker.Close()
 
 	tracker.TrackCall("sess1", "agent1", "user1", "task", "gpt-4o", "/v1/chat/completions")
@@ -188,14 +188,14 @@ func TestShouldBlock(t *testing.T) {
 	store := newStubStore()
 
 	cfg1 := Config{LoopAction: "block"}
-	t1 := NewTracker(store, cfg1, testLogger())
+	t1 := NewTracker(store, cfg1, nil, testLogger())
 	defer t1.Close()
 	if !t1.ShouldBlock() {
 		t.Error("should block when action=block")
 	}
 
 	cfg2 := Config{LoopAction: "warn"}
-	t2 := NewTracker(store, cfg2, testLogger())
+	t2 := NewTracker(store, cfg2, nil, testLogger())
 	defer t2.Close()
 	if t2.ShouldBlock() {
 		t.Error("should not block when action=warn")
@@ -206,21 +206,21 @@ func TestEnabled(t *testing.T) {
 	store := newStubStore()
 
 	// Nothing enabled
-	t1 := NewTracker(store, Config{}, testLogger())
+	t1 := NewTracker(store, Config{}, nil, testLogger())
 	defer t1.Close()
 	if t1.Enabled() {
 		t.Error("should not be enabled with zero config")
 	}
 
 	// Loop detection enabled
-	t2 := NewTracker(store, Config{LoopThreshold: 10}, testLogger())
+	t2 := NewTracker(store, Config{LoopThreshold: 10}, nil, testLogger())
 	defer t2.Close()
 	if !t2.Enabled() {
 		t.Error("should be enabled with loop threshold")
 	}
 
 	// Ghost detection enabled
-	t3 := NewTracker(store, Config{GhostMaxAgeMins: 60}, testLogger())
+	t3 := NewTracker(store, Config{GhostMaxAgeMins: 60}, nil, testLogger())
 	defer t3.Close()
 	if !t3.Enabled() {
 		t.Error("should be enabled with ghost max age")
@@ -230,7 +230,7 @@ func TestEnabled(t *testing.T) {
 func TestFlush_PersistsToStore(t *testing.T) {
 	store := newStubStore()
 	cfg := Config{SessionTimeoutMins: 30}
-	tracker := NewTracker(store, cfg, testLogger())
+	tracker := NewTracker(store, cfg, nil, testLogger())
 
 	tracker.TrackCall("sess1", "agent1", "user1", "task", "gpt-4o", "/v1/chat/completions")
 	tracker.RecordCost("sess1", 0.10, 200)
@@ -256,7 +256,7 @@ func TestFlush_PersistsToStore(t *testing.T) {
 func TestExpireIdleSessions(t *testing.T) {
 	store := newStubStore()
 	cfg := Config{SessionTimeoutMins: 1} // 1 minute timeout
-	tracker := NewTracker(store, cfg, testLogger())
+	tracker := NewTracker(store, cfg, nil, testLogger())
 	defer tracker.Close()
 
 	// Create a session with a call that's 2 minutes old.

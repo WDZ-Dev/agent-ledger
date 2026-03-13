@@ -108,6 +108,14 @@ func runServe(configPath string) error {
 		)
 	}
 
+	// OpenTelemetry + Prometheus metrics
+	metrics, metricsHandler, metricsShutdown, err := appmetrics.SetupPrometheus()
+	if err != nil {
+		return fmt.Errorf("setting up metrics: %w", err)
+	}
+	defer metricsShutdown()
+	logger.Info("prometheus metrics enabled at /metrics")
+
 	// Agent session tracker
 	agentCfg := agent.Config{
 		SessionTimeoutMins: cfg.Agent.SessionTimeoutMins,
@@ -118,7 +126,7 @@ func runServe(configPath string) error {
 		GhostMinCalls:      cfg.Agent.GhostMinCalls,
 		GhostMinCostUSD:    cfg.Agent.GhostMinCostUSD,
 	}
-	tracker := agent.NewTracker(store, agentCfg, logger)
+	tracker := agent.NewTracker(store, agentCfg, metrics, logger)
 	defer tracker.Close()
 	if tracker.Enabled() {
 		logger.Info("agent session tracking enabled",
@@ -126,14 +134,6 @@ func runServe(configPath string) error {
 			"ghost_max_age_mins", agentCfg.GhostMaxAgeMins,
 		)
 	}
-
-	// OpenTelemetry + Prometheus metrics
-	metrics, metricsHandler, metricsShutdown, err := appmetrics.SetupPrometheus()
-	if err != nil {
-		return fmt.Errorf("setting up metrics: %w", err)
-	}
-	defer metricsShutdown()
-	logger.Info("prometheus metrics enabled at /metrics")
 
 	// Proxy
 	p := proxy.New(reg, m, rec, budgetMgr, tracker, metrics, transport, logger)

@@ -17,7 +17,11 @@ func StaticHandler() http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Try serving the file directly first.
-		f, err := sub.Open(r.URL.Path[1:]) // strip leading /
+		path := r.URL.Path
+		if len(path) > 0 {
+			path = path[1:] // strip leading /
+		}
+		f, err := sub.Open(path)
 		if err == nil {
 			_ = f.Close()
 			fileServer.ServeHTTP(w, r)

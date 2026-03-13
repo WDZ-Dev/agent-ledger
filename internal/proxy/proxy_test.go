@@ -416,7 +416,7 @@ func TestAgentLoopBlocks429(t *testing.T) {
 		LoopThreshold:      3,
 		LoopWindowMins:     5,
 		LoopAction:         "block",
-	}, logger)
+	}, nil, logger)
 	defer tracker.Close()
 
 	p := New(reg, m, rec, nil, tracker, nil, nil, logger)
@@ -461,7 +461,7 @@ func TestAgentSessionEndHeader(t *testing.T) {
 	tracker := agent.NewTracker(&mockSessionStore{}, agent.Config{
 		SessionTimeoutMins: 30,
 		LoopThreshold:      0,
-	}, logger)
+	}, nil, logger)
 	defer tracker.Close()
 
 	p := New(reg, m, rec, nil, tracker, nil, nil, logger)
