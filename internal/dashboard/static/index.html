@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AgentLedger Dashboard</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1>AgentLedger</h1>
+    <p class="tagline">Know what your agents cost.</p>
+  </header>
+
+  <main>
+    <section class="cards" id="summary-cards">
+      <div class="card">
+        <span class="card-label">Today's Spend</span>
+        <span class="card-value" id="today-spend">--</span>
+      </div>
+      <div class="card">
+        <span class="card-label">Month's Spend</span>
+        <span class="card-value" id="month-spend">--</span>
+      </div>
+      <div class="card">
+        <span class="card-label">Today's Requests</span>
+        <span class="card-value" id="today-requests">--</span>
+      </div>
+      <div class="card">
+        <span class="card-label">Active Sessions</span>
+        <span class="card-value" id="active-sessions">--</span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2>Cost Over Time</h2>
+        <select id="timeseries-interval">
+          <option value="hour">Hourly</option>
+          <option value="day">Daily</option>
+        </select>
+        <select id="timeseries-hours">
+          <option value="24">Last 24h</option>
+          <option value="72">Last 3 days</option>
+          <option value="168">Last 7 days</option>
+        </select>
+      </div>
+      <div class="chart-container">
+        <canvas id="timeseries-chart"></canvas>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2>Cost Breakdown</h2>
+        <select id="costs-group">
+          <option value="model">By Model</option>
+          <option value="provider">By Provider</option>
+          <option value="agent">By Agent</option>
+          <option value="session">By Session</option>
+        </select>
+      </div>
+      <table id="costs-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Requests</th>
+            <th>Input Tokens</th>
+            <th>Output Tokens</th>
+            <th>Cost (USD)</th>
+          </tr>
+        </thead>
+        <tbody id="costs-body"></tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2>Active Sessions</h2>
+      <table id="sessions-table">
+        <thead>
+          <tr>
+            <th>Session ID</th>
+            <th>Agent</th>
+            <th>User</th>
+            <th>Calls</th>
+            <th>Cost (USD)</th>
+            <th>Status</th>
+            <th>Started</th>
+          </tr>
+        </thead>
+        <tbody id="sessions-body"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

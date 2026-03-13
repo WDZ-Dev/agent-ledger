@@ -50,3 +50,7 @@ recording:
 #   ghost_max_age_mins: 60      # sessions older than this are ghost candidates (0 = disabled)
 #   ghost_min_calls: 50         # minimum calls before ghost alert
 #   ghost_min_cost_usd: 1.0     # minimum spend before ghost alert
+
+# Dashboard (enabled by default)
+# dashboard:
+#   enabled: true               # set to false to disable web UI and API
