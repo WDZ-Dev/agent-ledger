@@ -1,6 +1,7 @@
 package otel
 
 import (
+	"context"
 	"testing"
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -8,7 +9,7 @@ import (
 
 func TestNewMetrics(t *testing.T) {
 	provider := sdkmetric.NewMeterProvider()
-	defer func() { _ = provider.Shutdown(nil) }()
+	defer func() { _ = provider.Shutdown(context.Background()) }()
 
 	meter := provider.Meter("test")
 	m, err := NewMetrics(meter)

@@ -27,6 +27,10 @@ func (c *countingLedger) GetTotalSpend(_ context.Context, _ string, _, _ time.Ti
 	return 0, nil
 }
 
+func (c *countingLedger) QueryCostTimeseries(_ context.Context, _ string, _, _ time.Time) ([]TimeseriesPoint, error) {
+	return nil, nil
+}
+
 func (c *countingLedger) Close() error { return nil }
 
 type failingLedger struct{}
@@ -41,6 +45,10 @@ func (f *failingLedger) QueryCosts(_ context.Context, _ CostFilter) ([]CostEntry
 
 func (f *failingLedger) GetTotalSpend(_ context.Context, _ string, _, _ time.Time) (float64, error) {
 	return 0, nil
+}
+
+func (f *failingLedger) QueryCostTimeseries(_ context.Context, _ string, _, _ time.Time) ([]TimeseriesPoint, error) {
+	return nil, nil
 }
 
 func (f *failingLedger) Close() error { return nil }

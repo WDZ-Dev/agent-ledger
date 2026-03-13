@@ -18,6 +18,10 @@ type Ledger interface {
 	// within the specified time window.
 	GetTotalSpend(ctx context.Context, apiKeyHash string, since, until time.Time) (float64, error)
 
+	// QueryCostTimeseries returns cost and request counts bucketed by time interval.
+	// interval should be "hour" or "day".
+	QueryCostTimeseries(ctx context.Context, interval string, since, until time.Time) ([]TimeseriesPoint, error)
+
 	// Close releases any held resources.
 	Close() error
 }

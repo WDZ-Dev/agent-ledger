@@ -29,6 +29,13 @@ type CostFilter struct {
 	GroupBy string // "model", "provider", "key", "agent", "session"
 }
 
+// TimeseriesPoint represents a single data point in a cost timeseries.
+type TimeseriesPoint struct {
+	Timestamp time.Time
+	CostUSD   float64
+	Requests  int
+}
+
 // CostEntry is an aggregated cost row returned by QueryCosts.
 type CostEntry struct {
 	Provider     string

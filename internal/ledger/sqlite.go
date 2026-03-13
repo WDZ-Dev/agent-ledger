@@ -121,6 +121,40 @@ func (s *SQLite) QueryCosts(ctx context.Context, filter CostFilter) ([]CostEntry
 	return entries, rows.Err()
 }
 
+func (s *SQLite) QueryCostTimeseries(ctx context.Context, interval string, since, until time.Time) ([]TimeseriesPoint, error) {
+	bucket := "strftime('%Y-%m-%d %H:00:00', timestamp)"
+	if interval == "day" {
+		bucket = "strftime('%Y-%m-%d 00:00:00', timestamp)"
+	}
+
+	q := fmt.Sprintf(`SELECT
+		%s as bucket,
+		COALESCE(SUM(cost_usd), 0),
+		COUNT(*)
+	FROM usage_records
+	WHERE timestamp >= ? AND timestamp <= ?
+	GROUP BY bucket
+	ORDER BY bucket ASC`, bucket)
+
+	rows, err := s.db.QueryContext(ctx, q, since.UTC(), until.UTC())
+	if err != nil {
+		return nil, fmt.Errorf("querying cost timeseries: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var points []TimeseriesPoint
+	for rows.Next() {
+		var p TimeseriesPoint
+		var ts string
+		if err := rows.Scan(&ts, &p.CostUSD, &p.Requests); err != nil {
+			return nil, fmt.Errorf("scanning timeseries point: %w", err)
+		}
+		p.Timestamp, _ = time.Parse("2006-01-02 15:04:05", ts)
+		points = append(points, p)
+	}
+	return points, rows.Err()
+}
+
 func (s *SQLite) GetTotalSpend(ctx context.Context, apiKeyHash string, since, until time.Time) (float64, error) {
 	const q = `SELECT COALESCE(SUM(cost_usd), 0) FROM usage_records
 		WHERE api_key_hash = ? AND timestamp >= ? AND timestamp <= ?`
