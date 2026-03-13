@@ -122,9 +122,11 @@ func (s *SQLite) QueryCosts(ctx context.Context, filter CostFilter) ([]CostEntry
 }
 
 func (s *SQLite) QueryCostTimeseries(ctx context.Context, interval string, since, until time.Time) ([]TimeseriesPoint, error) {
-	bucket := "strftime('%Y-%m-%d %H:00:00', timestamp)"
+	// Go's time.Time stores as "2006-01-02 15:04:05.999999 +0000 UTC" in SQLite,
+	// but strftime only parses ISO8601. Use substr to extract the datetime portion.
+	bucket := "strftime('%Y-%m-%d %H:00:00', substr(timestamp, 1, 19))"
 	if interval == "day" {
-		bucket = "strftime('%Y-%m-%d 00:00:00', timestamp)"
+		bucket = "strftime('%Y-%m-%d 00:00:00', substr(timestamp, 1, 19))"
 	}
 
 	q := fmt.Sprintf(`SELECT
