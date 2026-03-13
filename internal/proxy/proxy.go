@@ -19,6 +19,7 @@ import (
 	"github.com/WDZ-Dev/agent-ledger/internal/budget"
 	"github.com/WDZ-Dev/agent-ledger/internal/ledger"
 	"github.com/WDZ-Dev/agent-ledger/internal/meter"
+	appmetrics "github.com/WDZ-Dev/agent-ledger/internal/otel"
 	"github.com/WDZ-Dev/agent-ledger/internal/provider"
 )
 
@@ -48,19 +49,22 @@ type Proxy struct {
 	recorder *ledger.Recorder
 	budget   *budget.Manager
 	tracker  *agent.Tracker
+	metrics  *appmetrics.Metrics
 	logger   *slog.Logger
 }
 
 // New creates a Proxy wired to the given registry, meter, recorder, and
-// optional budget manager and agent tracker. Pass nil for budgetMgr/tracker
-// to disable those features. Pass nil for transport to use the default pooled transport.
-func New(registry *provider.Registry, m *meter.Meter, recorder *ledger.Recorder, budgetMgr *budget.Manager, tracker *agent.Tracker, transport http.RoundTripper, logger *slog.Logger) *Proxy {
+// optional budget manager, agent tracker, metrics, and transport.
+// Pass nil for budgetMgr/tracker/metrics to disable those features.
+// Pass nil for transport to use the default pooled transport.
+func New(registry *provider.Registry, m *meter.Meter, recorder *ledger.Recorder, budgetMgr *budget.Manager, tracker *agent.Tracker, metrics *appmetrics.Metrics, transport http.RoundTripper, logger *slog.Logger) *Proxy {
 	p := &Proxy{
 		registry: registry,
 		meter:    m,
 		recorder: recorder,
 		budget:   budgetMgr,
 		tracker:  tracker,
+		metrics:  metrics,
 		logger:   logger,
 	}
 
@@ -241,7 +245,7 @@ func (p *Proxy) modifyResponse(resp *http.Response) error {
 
 	if isStream {
 		resp.Body = newStreamInterceptor(
-			resp.Body, prov, reqMeta, p.meter, p.recorder, p.tracker, p.logger,
+			resp.Body, prov, reqMeta, p.meter, p.recorder, p.tracker, p.metrics, p.logger,
 			start, apiKeyHash, resp.Request.URL.Path,
 			agentID, sessionID, userID,
 		)
@@ -300,6 +304,13 @@ func (p *Proxy) modifyResponse(resp *http.Response) error {
 	// Update agent session cost.
 	if p.tracker != nil && sessionID != "" {
 		p.tracker.RecordCost(sessionID, cost, respMeta.TotalTokens)
+	}
+
+	// Update OTel metrics.
+	if p.metrics != nil {
+		p.metrics.RecordRequest(prov.Name(), model, resp.StatusCode,
+			float64(record.DurationMS), respMeta.InputTokens, respMeta.OutputTokens,
+			cost, false, apiKeyHash)
 	}
 
 	p.logger.Info("request",

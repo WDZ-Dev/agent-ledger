@@ -13,6 +13,7 @@ import (
 	"github.com/WDZ-Dev/agent-ledger/internal/agent"
 	"github.com/WDZ-Dev/agent-ledger/internal/ledger"
 	"github.com/WDZ-Dev/agent-ledger/internal/meter"
+	appmetrics "github.com/WDZ-Dev/agent-ledger/internal/otel"
 	"github.com/WDZ-Dev/agent-ledger/internal/provider"
 )
 
@@ -25,6 +26,7 @@ type streamInterceptor struct {
 	meter    *meter.Meter
 	recorder *ledger.Recorder
 	tracker  *agent.Tracker
+	metrics  *appmetrics.Metrics
 	logger   *slog.Logger
 
 	parseBuf bytes.Buffer // accumulates raw bytes for SSE parsing
@@ -51,6 +53,7 @@ func newStreamInterceptor(
 	m *meter.Meter,
 	recorder *ledger.Recorder,
 	tracker *agent.Tracker,
+	metrics *appmetrics.Metrics,
 	logger *slog.Logger,
 	start time.Time,
 	apiKeyHash, path string,
@@ -63,6 +66,7 @@ func newStreamInterceptor(
 		meter:      m,
 		recorder:   recorder,
 		tracker:    tracker,
+		metrics:    metrics,
 		logger:     logger,
 		start:      start,
 		apiKeyHash: apiKeyHash,
@@ -201,6 +205,13 @@ func (s *streamInterceptor) finalize() {
 		// Update agent session cost.
 		if s.tracker != nil && s.sessionID != "" {
 			s.tracker.RecordCost(s.sessionID, cost, s.inputTokens+s.outputTokens)
+		}
+
+		// Update OTel metrics.
+		if s.metrics != nil {
+			s.metrics.RecordRequest(s.prov.Name(), model, 200,
+				float64(record.DurationMS), s.inputTokens, s.outputTokens,
+				cost, true, s.apiKeyHash)
 		}
 
 		s.logger.Info("stream",
