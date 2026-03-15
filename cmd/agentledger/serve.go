@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -14,8 +15,10 @@ import (
 	"github.com/WDZ-Dev/agent-ledger/internal/agent"
 	"github.com/WDZ-Dev/agent-ledger/internal/budget"
 	"github.com/WDZ-Dev/agent-ledger/internal/config"
+	"github.com/WDZ-Dev/agent-ledger/internal/dashboard"
 	"github.com/WDZ-Dev/agent-ledger/internal/ledger"
 	"github.com/WDZ-Dev/agent-ledger/internal/meter"
+	appmetrics "github.com/WDZ-Dev/agent-ledger/internal/otel"
 	"github.com/WDZ-Dev/agent-ledger/internal/provider"
 	"github.com/WDZ-Dev/agent-ledger/internal/proxy"
 )
@@ -105,6 +108,14 @@ func runServe(configPath string) error {
 		)
 	}
 
+	// OpenTelemetry + Prometheus metrics
+	metrics, metricsHandler, metricsShutdown, err := appmetrics.SetupPrometheus()
+	if err != nil {
+		return fmt.Errorf("setting up metrics: %w", err)
+	}
+	defer metricsShutdown()
+	logger.Info("prometheus metrics enabled at /metrics")
+
 	// Agent session tracker
 	agentCfg := agent.Config{
 		SessionTimeoutMins: cfg.Agent.SessionTimeoutMins,
@@ -115,7 +126,7 @@ func runServe(configPath string) error {
 		GhostMinCalls:      cfg.Agent.GhostMinCalls,
 		GhostMinCostUSD:    cfg.Agent.GhostMinCostUSD,
 	}
-	tracker := agent.NewTracker(store, agentCfg, logger)
+	tracker := agent.NewTracker(store, agentCfg, metrics, logger)
 	defer tracker.Close()
 	if tracker.Enabled() {
 		logger.Info("agent session tracking enabled",
@@ -125,11 +136,29 @@ func runServe(configPath string) error {
 	}
 
 	// Proxy
-	p := proxy.New(reg, m, rec, budgetMgr, tracker, transport, logger)
+	p := proxy.New(reg, m, rec, budgetMgr, tracker, metrics, transport, logger)
+
+	// HTTP routing:
+	//   /v1/*         → LLM proxy
+	//   /health       → Health check
+	//   /metrics      → Prometheus
+	//   /api/dashboard/* → Dashboard REST API (if enabled)
+	//   /*            → Dashboard static UI (if enabled)
+	mux := http.NewServeMux()
+	mux.Handle("/v1/", p)
+	mux.Handle("/health", p)
+	mux.Handle("/metrics", metricsHandler)
+
+	if cfg.Dashboard.Enabled {
+		dashHandler := dashboard.NewHandler(store, tracker)
+		dashHandler.RegisterRoutes(mux)
+		mux.Handle("/", dashboard.StaticHandler())
+		logger.Info("dashboard enabled")
+	}
 
 	srv := &http.Server{
 		Addr:              cfg.Listen,
-		Handler:           p,
+		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

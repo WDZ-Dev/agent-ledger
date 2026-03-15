@@ -17,6 +17,7 @@ type Config struct {
 	Budgets        BudgetsConfig   `mapstructure:"budgets"`
 	CircuitBreaker CBConfig        `mapstructure:"circuit_breaker"`
 	Agent          AgentConfig     `mapstructure:"agent"`
+	Dashboard      DashboardConfig `mapstructure:"dashboard"`
 }
 
 // ProvidersConfig holds per-provider settings.
@@ -81,6 +82,11 @@ type AgentConfig struct {
 	GhostMinCostUSD    float64 `mapstructure:"ghost_min_cost_usd"`
 }
 
+// DashboardConfig holds dashboard UI settings.
+type DashboardConfig struct {
+	Enabled bool `mapstructure:"enabled"`
+}
+
 // Load reads configuration from the given file path, environment variables,
 // and defaults.
 func Load(path string) (*Config, error) {
@@ -105,6 +111,7 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("agent.ghost_max_age_mins", 0)
 	v.SetDefault("agent.ghost_min_calls", 50)
 	v.SetDefault("agent.ghost_min_cost_usd", 1.0)
+	v.SetDefault("dashboard.enabled", true)
 
 	// Environment variables: AGENTLEDGER_LISTEN, AGENTLEDGER_STORAGE_DSN, etc.
 	v.SetEnvPrefix("AGENTLEDGER")
