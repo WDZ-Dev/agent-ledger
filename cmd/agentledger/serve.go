@@ -17,6 +17,7 @@ import (
 	"github.com/WDZ-Dev/agent-ledger/internal/config"
 	"github.com/WDZ-Dev/agent-ledger/internal/dashboard"
 	"github.com/WDZ-Dev/agent-ledger/internal/ledger"
+	"github.com/WDZ-Dev/agent-ledger/internal/mcp"
 	"github.com/WDZ-Dev/agent-ledger/internal/meter"
 	appmetrics "github.com/WDZ-Dev/agent-ledger/internal/otel"
 	"github.com/WDZ-Dev/agent-ledger/internal/provider"
@@ -148,6 +149,22 @@ func runServe(configPath string) error {
 	mux.Handle("/v1/", p)
 	mux.Handle("/health", p)
 	mux.Handle("/metrics", metricsHandler)
+
+	// MCP HTTP proxy (optional).
+	if cfg.MCP.Enabled && cfg.MCP.Upstream != "" {
+		var mcpRules []mcp.PricingRule
+		for _, r := range cfg.MCP.Pricing {
+			mcpRules = append(mcpRules, mcp.PricingRule{
+				Server:      r.Server,
+				Tool:        r.Tool,
+				CostPerCall: r.CostPerCall,
+			})
+		}
+		mcpPricer := mcp.NewPricer(mcpRules)
+		mcpProxy := mcp.NewHTTPProxy(cfg.MCP.Upstream, mcpPricer, rec, logger)
+		mux.Handle("/mcp/", mcpProxy)
+		logger.Info("MCP HTTP proxy enabled", "upstream", cfg.MCP.Upstream)
+	}
 
 	if cfg.Dashboard.Enabled {
 		dashHandler := dashboard.NewHandler(store, tracker)

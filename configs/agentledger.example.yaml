@@ -54,3 +54,18 @@ recording:
 # Dashboard (enabled by default)
 # dashboard:
 #   enabled: true               # set to false to disable web UI and API
+
+# MCP (Model Context Protocol) tool call metering (optional — omit to disable)
+# mcp:
+#   enabled: true                          # enable HTTP proxy for MCP servers
+#   upstream: "http://localhost:3000"       # upstream MCP server URL
+#   pricing:                               # per-call cost rules
+#     - server: "filesystem"               # exact server+tool match
+#       tool: "read_file"
+#       cost_per_call: 0.01
+#     - server: "filesystem"               # wildcard: all tools on server
+#       tool: ""
+#       cost_per_call: 0.005
+#     - server: "github"
+#       tool: ""
+#       cost_per_call: 0.02

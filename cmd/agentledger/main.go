@@ -18,6 +18,7 @@ func main() {
 
 	root.AddCommand(serveCmd())
 	root.AddCommand(costsCmd())
+	root.AddCommand(mcpWrapCmd())
 	root.AddCommand(newVersionCmd())
 
 	if err := root.Execute(); err != nil {
