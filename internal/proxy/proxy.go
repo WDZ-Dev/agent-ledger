@@ -21,6 +21,8 @@ import (
 	"github.com/WDZ-Dev/agent-ledger/internal/meter"
 	appmetrics "github.com/WDZ-Dev/agent-ledger/internal/otel"
 	"github.com/WDZ-Dev/agent-ledger/internal/provider"
+	"github.com/WDZ-Dev/agent-ledger/internal/ratelimit"
+	"github.com/WDZ-Dev/agent-ledger/internal/tenant"
 )
 
 // context keys for passing data between Rewrite and ModifyResponse.
@@ -38,34 +40,39 @@ const (
 	ctxBudgetResult
 	ctxTask
 	ctxSessionEnd
+	ctxTenantID
 )
 
 // Proxy is the core reverse proxy that intercepts LLM API calls,
 // meters token usage, and records costs.
 type Proxy struct {
-	rp       *httputil.ReverseProxy
-	registry *provider.Registry
-	meter    *meter.Meter
-	recorder *ledger.Recorder
-	budget   *budget.Manager
-	tracker  *agent.Tracker
-	metrics  *appmetrics.Metrics
-	logger   *slog.Logger
+	rp             *httputil.ReverseProxy
+	registry       *provider.Registry
+	meter          *meter.Meter
+	recorder       *ledger.Recorder
+	budget         *budget.Manager
+	tracker        *agent.Tracker
+	metrics        *appmetrics.Metrics
+	limiter        *ratelimit.Limiter
+	tenantResolver tenant.Resolver
+	logger         *slog.Logger
 }
 
 // New creates a Proxy wired to the given registry, meter, recorder, and
 // optional budget manager, agent tracker, metrics, and transport.
 // Pass nil for budgetMgr/tracker/metrics to disable those features.
 // Pass nil for transport to use the default pooled transport.
-func New(registry *provider.Registry, m *meter.Meter, recorder *ledger.Recorder, budgetMgr *budget.Manager, tracker *agent.Tracker, metrics *appmetrics.Metrics, transport http.RoundTripper, logger *slog.Logger) *Proxy {
+func New(registry *provider.Registry, m *meter.Meter, recorder *ledger.Recorder, budgetMgr *budget.Manager, tracker *agent.Tracker, metrics *appmetrics.Metrics, limiter *ratelimit.Limiter, tenantRes tenant.Resolver, transport http.RoundTripper, logger *slog.Logger) *Proxy {
 	p := &Proxy{
-		registry: registry,
-		meter:    m,
-		recorder: recorder,
-		budget:   budgetMgr,
-		tracker:  tracker,
-		metrics:  metrics,
-		logger:   logger,
+		registry:       registry,
+		meter:          m,
+		recorder:       recorder,
+		budget:         budgetMgr,
+		tracker:        tracker,
+		metrics:        metrics,
+		limiter:        limiter,
+		tenantResolver: tenantRes,
+		logger:         logger,
 	}
 
 	if transport == nil {
@@ -139,6 +146,19 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Rate limit check: reject before budget check.
+	if p.limiter != nil && p.limiter.Enabled() {
+		allowed, retryAfter := p.limiter.Allow(apiKey, apiKeyHash)
+		if !allowed {
+			if p.metrics != nil {
+				p.metrics.RecordRateLimited(apiKeyHash)
+			}
+			w.Header().Set("Retry-After", fmt.Sprintf("%.0f", retryAfter.Seconds()))
+			writeJSONError(w, http.StatusTooManyRequests, "rate limit exceeded")
+			return
+		}
+	}
+
 	// Budget check: reject or warn before forwarding.
 	var budgetResult *budget.Result
 	if p.budget != nil && p.budget.Enabled() {
@@ -178,6 +198,12 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Resolve tenant (if configured).
+	var tenantID string
+	if p.tenantResolver != nil {
+		tenantID = p.tenantResolver.ResolveTenant(r)
+	}
+
 	// Store everything in context for ModifyResponse.
 	ctx := r.Context()
 	ctx = context.WithValue(ctx, ctxProvider, prov)
@@ -191,6 +217,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx = context.WithValue(ctx, ctxBudgetResult, budgetResult)
 	ctx = context.WithValue(ctx, ctxTask, task)
 	ctx = context.WithValue(ctx, ctxSessionEnd, sessionEnd)
+	ctx = context.WithValue(ctx, ctxTenantID, tenantID)
 
 	r = r.WithContext(ctx)
 	r.Body = io.NopCloser(bytes.NewReader(body))
@@ -213,6 +240,11 @@ func (p *Proxy) rewrite(pr *httputil.ProxyRequest) {
 	pr.SetURL(upstream)
 	pr.Out.Host = upstream.Host
 
+	// Strip provider path prefix so upstream sees the native API path.
+	if rewriter, ok := prov.(provider.PathRewriter); ok {
+		pr.Out.URL.Path = rewriter.RewritePath(pr.Out.URL.Path)
+	}
+
 	// Strip agent headers so they don't leak to the provider.
 	provider.StripAgentHeaders(pr.Out)
 
@@ -229,6 +261,7 @@ func (p *Proxy) modifyResponse(resp *http.Response) error {
 	agentID, _ := ctx.Value(ctxAgentID).(string)
 	sessionID, _ := ctx.Value(ctxSessionID).(string)
 	userID, _ := ctx.Value(ctxUserID).(string)
+	tenantID, _ := ctx.Value(ctxTenantID).(string)
 
 	if prov == nil {
 		return nil
@@ -247,7 +280,7 @@ func (p *Proxy) modifyResponse(resp *http.Response) error {
 		resp.Body = newStreamInterceptor(
 			resp.Body, prov, reqMeta, p.meter, p.recorder, p.tracker, p.metrics, p.logger,
 			start, apiKeyHash, resp.Request.URL.Path,
-			agentID, sessionID, userID,
+			agentID, sessionID, userID, tenantID,
 		)
 		return nil
 	}
@@ -298,6 +331,7 @@ func (p *Proxy) modifyResponse(resp *http.Response) error {
 		AgentID:      agentID,
 		SessionID:    sessionID,
 		UserID:       userID,
+		TenantID:     tenantID,
 	}
 	p.recorder.Record(record)
 

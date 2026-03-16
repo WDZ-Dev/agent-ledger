@@ -34,7 +34,7 @@ func BenchmarkNonStreamingProxy(b *testing.B) {
 		Anthropic: config.ProviderConfig{Upstream: upstream.URL, Enabled: true},
 	})
 	m := meter.New()
-	p := New(reg, m, rec, nil, nil, nil, nil, logger)
+	p := New(reg, m, rec, nil, nil, nil, nil, nil, nil, logger)
 
 	reqBody := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`
 
@@ -70,7 +70,7 @@ func BenchmarkStreamingProxy(b *testing.B) {
 		Anthropic: config.ProviderConfig{Upstream: upstream.URL, Enabled: true},
 	})
 	m := meter.New()
-	p := New(reg, m, rec, nil, nil, nil, nil, logger)
+	p := New(reg, m, rec, nil, nil, nil, nil, nil, nil, logger)
 
 	reqBody := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}],"stream":true}`
 
@@ -100,7 +100,7 @@ func BenchmarkHealthCheck(b *testing.B) {
 		OpenAI: config.ProviderConfig{Upstream: upstream.URL, Enabled: true},
 	})
 	m := meter.New()
-	p := New(reg, m, rec, nil, nil, nil, nil, logger)
+	p := New(reg, m, rec, nil, nil, nil, nil, nil, nil, logger)
 
 	b.ResetTimer()
 	b.ReportAllocs()

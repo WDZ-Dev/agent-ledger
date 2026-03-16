@@ -53,7 +53,8 @@ type StreamChunkMeta struct {
 }
 
 // ExtractAPIKey reads the API key from request headers.
-// OpenAI uses Authorization: Bearer, Anthropic uses x-api-key.
+// OpenAI uses Authorization: Bearer, Anthropic uses x-api-key,
+// Google Gemini uses X-Goog-Api-Key.
 func ExtractAPIKey(r *http.Request) string {
 	if auth := r.Header.Get("Authorization"); auth != "" {
 		if strings.HasPrefix(auth, "Bearer ") {
@@ -61,6 +62,9 @@ func ExtractAPIKey(r *http.Request) string {
 		}
 	}
 	if key := r.Header.Get("x-api-key"); key != "" {
+		return key
+	}
+	if key := r.Header.Get("X-Goog-Api-Key"); key != "" {
 		return key
 	}
 	return ""

@@ -44,5 +44,33 @@ func DefaultPricing() map[string]ModelPricing {
 		"claude-3-opus":   {InputPerMTok: 15.00, OutputPerMTok: 75.00},
 		"claude-3-sonnet": {InputPerMTok: 3.00, OutputPerMTok: 15.00},
 		"claude-3-haiku":  {InputPerMTok: 0.25, OutputPerMTok: 1.25},
+
+		// Google Gemini
+		"gemini-2.5-pro":   {InputPerMTok: 1.25, OutputPerMTok: 10.00},
+		"gemini-2.5-flash": {InputPerMTok: 0.15, OutputPerMTok: 0.60},
+		"gemini-2.0-flash": {InputPerMTok: 0.10, OutputPerMTok: 0.40},
+		"gemini-1.5-pro":   {InputPerMTok: 1.25, OutputPerMTok: 5.00},
+		"gemini-1.5-flash": {InputPerMTok: 0.075, OutputPerMTok: 0.30},
+
+		// Mistral
+		"mistral-large-latest": {InputPerMTok: 2.00, OutputPerMTok: 6.00},
+		"mistral-small-latest": {InputPerMTok: 0.20, OutputPerMTok: 0.60},
+		"codestral-latest":     {InputPerMTok: 0.30, OutputPerMTok: 0.90},
+		"open-mistral-nemo":    {InputPerMTok: 0.15, OutputPerMTok: 0.15},
+
+		// Groq (hosted models — pricing reflects Groq's rates)
+		"llama-3.3-70b-versatile": {InputPerMTok: 0.59, OutputPerMTok: 0.79},
+		"llama-3.1-8b-instant":    {InputPerMTok: 0.05, OutputPerMTok: 0.08},
+		"mixtral-8x7b-32768":      {InputPerMTok: 0.24, OutputPerMTok: 0.24},
+		"gemma2-9b-it":            {InputPerMTok: 0.20, OutputPerMTok: 0.20},
+
+		// DeepSeek
+		"deepseek-chat":     {InputPerMTok: 0.14, OutputPerMTok: 0.28},
+		"deepseek-reasoner": {InputPerMTok: 0.55, OutputPerMTok: 2.19},
+
+		// Cohere
+		"command-r-plus": {InputPerMTok: 2.50, OutputPerMTok: 10.00},
+		"command-r":      {InputPerMTok: 0.15, OutputPerMTok: 0.60},
+		"command-light":  {InputPerMTok: 0.30, OutputPerMTok: 0.60},
 	}
 }

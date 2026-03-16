@@ -42,6 +42,7 @@ type streamInterceptor struct {
 	agentID    string
 	sessionID  string
 	userID     string
+	tenantID   string
 
 	once sync.Once // ensures finalize runs exactly once
 }
@@ -57,7 +58,7 @@ func newStreamInterceptor(
 	logger *slog.Logger,
 	start time.Time,
 	apiKeyHash, path string,
-	agentID, sessionID, userID string,
+	agentID, sessionID, userID, tenantID string,
 ) *streamInterceptor {
 	return &streamInterceptor{
 		src:        src,
@@ -74,6 +75,7 @@ func newStreamInterceptor(
 		agentID:    agentID,
 		sessionID:  sessionID,
 		userID:     userID,
+		tenantID:   tenantID,
 	}
 }
 
@@ -199,6 +201,7 @@ func (s *streamInterceptor) finalize() {
 			AgentID:      s.agentID,
 			SessionID:    s.sessionID,
 			UserID:       s.userID,
+			TenantID:     s.tenantID,
 		}
 		s.recorder.Record(record)
 

@@ -116,13 +116,16 @@ func (h *Handler) handleCosts(w http.ResponseWriter, r *http.Request) {
 		hours = 24
 	}
 
+	tenantID := r.URL.Query().Get("tenant")
+
 	now := time.Now().UTC()
 	since := now.Add(-time.Duration(hours) * time.Hour)
 
 	entries, err := h.ledger.QueryCosts(r.Context(), ledger.CostFilter{
-		Since:   since,
-		Until:   now,
-		GroupBy: groupBy,
+		Since:    since,
+		Until:    now,
+		GroupBy:  groupBy,
+		TenantID: tenantID,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

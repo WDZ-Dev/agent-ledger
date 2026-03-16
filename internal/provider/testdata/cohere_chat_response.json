@@ -1,0 +1,21 @@
+{
+  "message": {
+    "role": "assistant",
+    "content": [
+      {
+        "type": "text",
+        "text": "Hello! How can I help you today?"
+      }
+    ]
+  },
+  "finish_reason": "COMPLETE",
+  "meta": {
+    "api_version": {
+      "version": "2"
+    },
+    "tokens": {
+      "input_tokens": 14,
+      "output_tokens": 8
+    }
+  }
+}
