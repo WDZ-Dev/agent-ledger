@@ -22,7 +22,7 @@ func NewGemini(upstream string) *Gemini {
 	return &Gemini{upstream: upstream}
 }
 
-func (g *Gemini) Name() string        { return "gemini" }
+func (g *Gemini) Name() string        { return "gemini" } //nolint:goconst
 func (g *Gemini) UpstreamURL() string { return g.upstream }
 func (g *Gemini) PathPrefix() string  { return "/gemini" }
 

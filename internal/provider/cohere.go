@@ -19,7 +19,7 @@ func NewCohere(upstream string) *Cohere {
 	return &Cohere{upstream: upstream}
 }
 
-func (c *Cohere) Name() string        { return "cohere" }
+func (c *Cohere) Name() string        { return "cohere" } //nolint:goconst
 func (c *Cohere) UpstreamURL() string { return c.upstream }
 func (c *Cohere) PathPrefix() string  { return "/cohere" }
 
