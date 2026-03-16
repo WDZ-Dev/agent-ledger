@@ -1,4 +1,4 @@
-.PHONY: build test test-short lint fmt vet vulncheck clean dev setup
+.PHONY: build test test-short lint fmt vet vulncheck clean dev setup docker docker-run helm-lint release-dry
 
 # Build variables
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -64,6 +64,22 @@ setup:
 	go install golang.org/x/vuln/cmd/govulncheck@latest
 	go install golang.org/x/tools/cmd/goimports@latest
 	~/go/bin/lefthook install
+
+## docker: Build Docker image
+docker:
+	docker build -t agentledger:dev .
+
+## docker-run: Build and run in Docker
+docker-run: docker
+	docker run --rm -p 8787:8787 -v agentledger-data:/data agentledger:dev
+
+## helm-lint: Lint the Helm chart
+helm-lint:
+	helm lint deploy/helm/agentledger
+
+## release-dry: GoReleaser dry run (snapshot)
+release-dry:
+	goreleaser release --snapshot --clean
 
 ## check: Run all checks (what CI runs)
 check: fmt vet lint test vulncheck
