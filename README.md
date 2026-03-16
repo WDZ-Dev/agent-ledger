@@ -18,28 +18,45 @@ AgentLedger gives you:
 - **Real-time cost tracking** — every request metered, every token counted
 - **Budget enforcement** — daily and monthly limits with automatic blocking
 - **Pre-flight estimation** — rejects requests that would exceed your budget before they hit the API
-- **Agent-level attribution** — group multi-call agent runs into sessions (coming soon)
+- **Agent session tracking** — group multi-call agent runs into sessions, detect loops and ghost agents
+- **MCP tool metering** — track costs of MCP tool calls alongside LLM usage
+- **Dashboard** — embedded web UI for real-time cost visibility
+- **Observability** — OpenTelemetry metrics with Prometheus endpoint
 - **Circuit breaker** — automatic upstream failure protection
 - **Zero code changes** — works with any OpenAI/Anthropic SDK via base URL override
 
 ## Quick Start
 
-### Install from source
+### Install
+
+**Binary download** — grab the latest release from [GitHub Releases](https://github.com/WDZ-Dev/agent-ledger/releases).
+
+**From source:**
 
 ```bash
-git clone https://github.com/WDZ-Dev/agent-ledger.git
-cd agent-ledger
-make build
+go install github.com/WDZ-Dev/agent-ledger/cmd/agentledger@latest
+```
+
+**Docker:**
+
+```bash
+docker run --rm -p 8787:8787 ghcr.io/wdz-dev/agent-ledger:latest
+```
+
+**Helm (Kubernetes):**
+
+```bash
+helm install agentledger deploy/helm/agentledger
 ```
 
 ### Run
 
 ```bash
 # Start the proxy with defaults (listens on :8787)
-./bin/agentledger serve
+agentledger serve
 
 # Or with a config file
-./bin/agentledger serve -c configs/agentledger.example.yaml
+agentledger serve -c configs/agentledger.example.yaml
 ```
 
 ### Point your agents at it
@@ -59,10 +76,10 @@ export ANTHROPIC_BASE_URL=http://localhost:8787
 
 ```bash
 # Last 24 hours, grouped by model
-./bin/agentledger costs
+agentledger costs
 
 # Last 7 days, grouped by API key
-./bin/agentledger costs --last 7d --by key
+agentledger costs --last 7d --by key
 ```
 
 ```
@@ -75,6 +92,12 @@ anthropic  claude-sonnet-4   12         6000           3000            $0.0630
 TOTAL                       192        53400          26700           $0.2111
 ```
 
+### Docker Compose
+
+```bash
+cd deploy && docker compose up
+```
+
 ## Architecture
 
 ```
@@ -83,14 +106,20 @@ TOTAL                       192        53400          26700           $0.2111
 │  (any SDK)  │       │                      │       │ Anthropic API│
 └─────────────┘       │  ┌────────────────┐  │       └──────────────┘
                       │  │ Budget Check   │  │
-                      │  │ Pre-flight Est │  │
-                      │  │ Token Metering │  │
-                      │  │ Cost Calc      │  │
+┌─────────────┐       │  │ Pre-flight Est │  │
+│ MCP Servers │◀─────▶│  │ Token Metering │  │
+│(stdio/HTTP) │       │  │ Agent Sessions │  │
+└─────────────┘       │  │ Cost Calc      │  │
                       │  │ Async Record   │  │
                       │  └────────────────┘  │
                       │          │           │
                       │  ┌───────▼────────┐  │
                       │  │ SQLite/Postgres │  │
+                      │  └────────────────┘  │
+                      │          │           │
+                      │  ┌───────▼────────┐  │
+                      │  │ Dashboard :8787 │  │
+                      │  │ Prometheus      │  │
                       │  └────────────────┘  │
                       └──────────────────────┘
 ```
@@ -157,19 +186,9 @@ budgets:
       action: "block"
 ```
 
-### Circuit Breaker
+### Agent Session Tracking
 
-Protects against upstream failures. After a configurable number of consecutive 5xx responses, the circuit opens and rejects requests immediately with a clear error. Auto-recovers after a timeout.
-
-```yaml
-circuit_breaker:
-  max_failures: 5
-  timeout_secs: 30
-```
-
-### Agent Identification
-
-Tag requests with agent metadata using headers (stripped before forwarding to the provider):
+AgentLedger groups multi-call agent runs into sessions, enabling per-execution cost attribution. Tag requests with agent metadata using headers (stripped before forwarding to the provider):
 
 ```
 X-Agent-Id: code-reviewer
@@ -178,7 +197,67 @@ X-Agent-User: user@example.com
 X-Agent-Task: "Review PR #456"
 ```
 
-These are stored in the usage ledger for per-agent cost attribution.
+**Loop detection** identifies runaway agents making repetitive calls:
+
+```yaml
+agent:
+  loop_threshold: 20      # same path N times in window = loop
+  loop_window_mins: 5
+  loop_action: "warn"     # "warn" or "block"
+```
+
+**Ghost detection** finds forgotten agents still burning tokens:
+
+```yaml
+agent:
+  ghost_max_age_mins: 60
+  ghost_min_calls: 50
+  ghost_min_cost_usd: 1.0
+```
+
+### MCP Tool Metering
+
+Meter MCP (Model Context Protocol) tool calls alongside LLM costs. Two modes:
+
+**HTTP proxy** — forward JSON-RPC to an upstream MCP server:
+
+```yaml
+mcp:
+  enabled: true
+  upstream: "http://localhost:3000"
+  pricing:
+    - server: "filesystem"
+      tool: "read_file"
+      cost_per_call: 0.01
+```
+
+**Stdio wrapper** — wrap any MCP server process:
+
+```bash
+agentledger mcp-wrap -- npx @modelcontextprotocol/server-filesystem /tmp
+```
+
+### Dashboard
+
+Embedded web UI at the root URL (`http://localhost:8787/`) with real-time cost breakdowns, session views, and spending trends.
+
+### Observability
+
+OpenTelemetry metrics exported via Prometheus at `/metrics`:
+
+- Request latency, token counts, cost totals
+- Session lifecycle, loop/ghost alerts
+- MCP tool call counts and costs
+
+### Circuit Breaker
+
+Protects against upstream failures. After a configurable number of consecutive 5xx responses, the circuit opens and rejects requests immediately. Auto-recovers after a timeout.
+
+```yaml
+circuit_breaker:
+  max_failures: 5
+  timeout_secs: 30
+```
 
 ### API Key Security
 
@@ -202,67 +281,24 @@ AGENTLEDGER_STORAGE_DSN="/tmp/ledger.db"
 AGENTLEDGER_LOG_LEVEL="debug"
 ```
 
-### Full Reference
-
-```yaml
-# Listen address
-listen: ":8787"
-
-# Upstream providers
-providers:
-  openai:
-    upstream: "https://api.openai.com"
-    enabled: true
-  anthropic:
-    upstream: "https://api.anthropic.com"
-    enabled: true
-
-# Storage backend
-storage:
-  driver: "sqlite"             # sqlite (postgres coming soon)
-  dsn: "data/agentledger.db"
-
-# Logging
-log:
-  level: "info"                # debug, info, warn, error
-  format: "text"               # text, json
-
-# Async recording pipeline
-recording:
-  buffer_size: 10000           # channel buffer size
-  workers: 4                   # recording goroutines
-
-# Budget enforcement (optional)
-budgets:
-  default:
-    daily_limit_usd: 50.0
-    monthly_limit_usd: 500.0
-    soft_limit_pct: 0.8        # warn at 80% of limit
-    action: "block"            # "block" = 429, "warn" = header only
-  rules:
-    - api_key_pattern: "sk-proj-dev-*"
-      daily_limit_usd: 5.0
-      monthly_limit_usd: 50.0
-      action: "block"
-
-# Circuit breaker (optional)
-circuit_breaker:
-  max_failures: 5              # consecutive 5xx to trip
-  timeout_secs: 30             # recovery timeout
-```
+See [`configs/agentledger.example.yaml`](configs/agentledger.example.yaml) for the full reference.
 
 ## CLI
 
 ```
-agentledger serve   Start the proxy
-  -c, --config      Path to config file
+agentledger serve       Start the proxy
+  -c, --config          Path to config file
 
-agentledger costs   Show cost report
-  -c, --config      Path to config file
-  --last            Time window: 1h, 24h, 7d, 30d (default: 24h)
-  --by              Group by: model, provider, key (default: model)
+agentledger costs       Show cost report
+  -c, --config          Path to config file
+  --last                Time window: 1h, 24h, 7d, 30d (default: 24h)
+  --by                  Group by: model, provider, key (default: model)
 
-agentledger version Print version
+agentledger mcp-wrap    Wrap an MCP server process for tool call metering
+  -c, --config          Path to config file
+  -- command [args...]  MCP server command to wrap
+
+agentledger version     Print version
 ```
 
 ## Performance
@@ -283,7 +319,7 @@ Target: <1ms proxy overhead per request. Actual: ~0.1ms.
 
 ### Prerequisites
 
-- Go 1.24+
+- Go 1.25+
 - [golangci-lint](https://golangci-lint.run/) v2
 - [lefthook](https://github.com/evilmartians/lefthook) (git hooks)
 
@@ -301,14 +337,10 @@ make test          # Run all tests with race detection
 make lint          # Run golangci-lint
 make dev           # Build and run with example config
 make check         # Run all checks (fmt, vet, lint, test, vulncheck)
-```
-
-### Run locally
-
-```bash
-make dev
-# or
-go run ./cmd/agentledger serve -c configs/agentledger.example.yaml
+make docker        # Build Docker image
+make docker-run    # Build and run in Docker
+make helm-lint     # Lint Helm chart
+make release-dry   # GoReleaser snapshot
 ```
 
 ## Project Structure
@@ -316,9 +348,10 @@ go run ./cmd/agentledger serve -c configs/agentledger.example.yaml
 ```
 agent-ledger/
 ├── cmd/agentledger/           CLI entrypoint
-│   ├── main.go                Root command (cobra)
+│   ├── main.go                Root command + healthcheck (cobra)
 │   ├── serve.go               Proxy server command
-│   └── costs.go               Cost report command
+│   ├── costs.go               Cost report command
+│   └── mcpwrap.go             MCP stdio wrapper command
 ├── internal/
 │   ├── proxy/                 Reverse proxy core
 │   │   ├── proxy.go           httputil.ReverseProxy + budget integration
@@ -341,10 +374,32 @@ agent-ledger/
 │   ├── budget/                Budget enforcement
 │   │   ├── budget.go          Per-key spend limits + caching
 │   │   └── circuit_breaker.go Transport wrapper for upstream failures
+│   ├── agent/                 Agent session tracking
+│   │   ├── session.go         Session lifecycle management
+│   │   └── detector.go        Loop/ghost detection
+│   ├── mcp/                   MCP tool metering
+│   │   ├── httpproxy.go       HTTP proxy for MCP servers
+│   │   ├── interceptor.go     JSON-RPC interception
+│   │   ├── stdio.go           Stdio wrapper for MCP processes
+│   │   └── pricing.go         Per-call cost rules
+│   ├── otel/                  Observability
+│   │   ├── metrics.go         OTel metrics recording
+│   │   └── provider.go        Prometheus exporter setup
+│   ├── dashboard/             Web UI
+│   │   ├── handlers.go        REST API handlers
+│   │   └── server.go          HTTP server + embedded assets
 │   └── config/                YAML/env config (viper)
+├── deploy/
+│   ├── docker-compose.yml     One-command local dev
+│   ├── Dockerfile.goreleaser  Slim image for releases
+│   └── helm/agentledger/      Kubernetes Helm chart
 ├── configs/
 │   └── agentledger.example.yaml
-├── .github/workflows/ci.yml   Lint, test, build, vulncheck
+├── .github/workflows/
+│   ├── ci.yml                 Lint, test, build, vulncheck
+│   └── release.yml            GoReleaser on tag push
+├── Dockerfile                 Multi-stage Docker build
+├── .goreleaser.yml            Cross-platform release config
 ├── Makefile
 ├── go.mod
 └── lefthook.yml               Pre-commit and pre-push hooks
@@ -354,10 +409,18 @@ agent-ledger/
 
 - [x] **Phase 1: Core Proxy** — Reverse proxy, token metering, cost calculation, SQLite storage, CLI
 - [x] **Phase 2: Budget Enforcement** — Per-key budgets, pre-flight estimation, circuit breaker
-- [ ] **Phase 3: Agent Attribution** — Session tracking, loop detection, ghost agent detection
-- [ ] **Phase 4: Observability** — OpenTelemetry metrics, Prometheus endpoint, web dashboard
-- [ ] **Phase 5: MCP Integration** — Meter MCP tool calls alongside LLM costs
-- [ ] **Phase 6: Polish & Launch** — Docker, GoReleaser, Helm chart, docs
+- [x] **Phase 3: Agent Attribution** — Session tracking, loop detection, ghost agent detection
+- [x] **Phase 4: Observability** — OpenTelemetry metrics, Prometheus endpoint, web dashboard
+- [x] **Phase 5: MCP Integration** — Meter MCP tool calls alongside LLM costs
+- [x] **Phase 6: Polish & Launch** — Docker, GoReleaser, Helm chart, docs
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/my-feature`)
+3. Run checks (`make check`)
+4. Commit your changes
+5. Open a pull request
 
 ## License
 
