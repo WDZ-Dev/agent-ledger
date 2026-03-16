@@ -1,0 +1,21 @@
+services:
+  agentledger:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    ports:
+      - "8787:8787"
+    volumes:
+      - agentledger-data:/data
+    environment:
+      AGENTLEDGER_LOG_LEVEL: "info"
+      AGENTLEDGER_LOG_FORMAT: "json"
+    healthcheck:
+      test: ["CMD", "/agentledger", "healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  agentledger-data:

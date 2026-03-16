@@ -1,0 +1,72 @@
+version: 2
+
+project_name: agentledger
+
+builds:
+  - main: ./cmd/agentledger
+    binary: agentledger
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - README.md
+      - configs/agentledger.example.yaml
+
+dockers:
+  - image_templates:
+      - "ghcr.io/wdz-dev/agent-ledger:{{.Version}}-amd64"
+    dockerfile: deploy/Dockerfile.goreleaser
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+    extra_files:
+      - configs/agentledger.example.yaml
+    goarch: amd64
+
+  - image_templates:
+      - "ghcr.io/wdz-dev/agent-ledger:{{.Version}}-arm64"
+    dockerfile: deploy/Dockerfile.goreleaser
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+    extra_files:
+      - configs/agentledger.example.yaml
+    goarch: arm64
+
+docker_manifests:
+  - name_template: "ghcr.io/wdz-dev/agent-ledger:{{.Version}}"
+    image_templates:
+      - "ghcr.io/wdz-dev/agent-ledger:{{.Version}}-amd64"
+      - "ghcr.io/wdz-dev/agent-ledger:{{.Version}}-arm64"
+
+  - name_template: "ghcr.io/wdz-dev/agent-ledger:latest"
+    image_templates:
+      - "ghcr.io/wdz-dev/agent-ledger:{{.Version}}-amd64"
+      - "ghcr.io/wdz-dev/agent-ledger:{{.Version}}-arm64"
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  filters:
+    exclude:
+      - "^docs:"
+      - "^ci:"
+      - "^chore:"
+      - "^test:"

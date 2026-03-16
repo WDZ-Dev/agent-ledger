@@ -1,0 +1,15 @@
+.git
+bin/
+dist/
+data/
+references/
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+coverage.out
+coverage.html
+.env
+.env.*
+.idea/
+.vscode/

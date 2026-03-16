@@ -1,0 +1,6 @@
+apiVersion: v2
+name: agentledger
+description: A Helm chart for AgentLedger — AI agent cost tracking and budget enforcement proxy
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

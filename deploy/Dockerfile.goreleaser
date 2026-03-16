@@ -1,0 +1,10 @@
+FROM gcr.io/distroless/static-debian12:nonroot
+
+COPY agentledger /agentledger
+COPY agentledger.example.yaml /etc/agentledger/agentledger.yaml
+
+EXPOSE 8787
+VOLUME /data
+
+ENTRYPOINT ["/agentledger"]
+CMD ["serve"]

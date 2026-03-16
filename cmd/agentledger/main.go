@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -20,6 +21,7 @@ func main() {
 	root.AddCommand(costsCmd())
 	root.AddCommand(mcpWrapCmd())
 	root.AddCommand(newVersionCmd())
+	root.AddCommand(newHealthcheckCmd())
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -35,4 +37,30 @@ func newVersionCmd() *cobra.Command {
 			fmt.Printf("agentledger %s\n", version)
 		},
 	}
+}
+
+func newHealthcheckCmd() *cobra.Command {
+	var addr string
+
+	cmd := &cobra.Command{
+		Use:    "healthcheck",
+		Short:  "Check if the server is healthy",
+		Hidden: true,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			resp, err := http.Get("http://" + addr + "/health")
+			if err != nil {
+				return fmt.Errorf("health check failed: %w", err)
+			}
+			defer func() { _ = resp.Body.Close() }()
+			if resp.StatusCode != http.StatusOK {
+				return fmt.Errorf("unhealthy: status %d", resp.StatusCode)
+			}
+			fmt.Println("ok")
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&addr, "addr", "localhost:8787", "server address to check")
+
+	return cmd
 }
