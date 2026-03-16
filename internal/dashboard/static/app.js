@@ -4,6 +4,33 @@
   const $ = (sel) => document.querySelector(sel);
   const fmt = (n) => (n >= 1 ? n.toFixed(2) : n.toFixed(4));
 
+  // Tenant filtering
+  let currentTenant = "";
+
+  function tenantQS(prefix) {
+    if (!currentTenant) return prefix;
+    const sep = prefix.includes("?") ? "&" : "?";
+    return prefix + sep + "tenant=" + encodeURIComponent(currentTenant);
+  }
+
+  // Admin token
+  let adminToken = localStorage.getItem("agentledger_admin_token") || "";
+  $("#admin-token").value = adminToken;
+
+  $("#save-token").addEventListener("click", () => {
+    adminToken = $("#admin-token").value.trim();
+    localStorage.setItem("agentledger_admin_token", adminToken);
+    loadRules();
+  });
+
+  async function adminFetch(url, opts = {}) {
+    if (!adminToken) return null;
+    opts.headers = { ...opts.headers, Authorization: "Bearer " + adminToken };
+    const resp = await fetch(url, opts);
+    if (!resp.ok) return null;
+    return resp.json();
+  }
+
   async function fetchJSON(url) {
     const resp = await fetch(url);
     if (!resp.ok) throw new Error(resp.statusText);
@@ -13,7 +40,7 @@
   // Summary cards
   async function loadSummary() {
     try {
-      const d = await fetchJSON("/api/dashboard/summary");
+      const d = await fetchJSON(tenantQS("/api/dashboard/summary"));
       $("#today-spend").textContent = "$" + fmt(d.today_spend_usd);
       $("#month-spend").textContent = "$" + fmt(d.month_spend_usd);
       $("#today-requests").textContent = d.today_requests.toLocaleString();
@@ -29,7 +56,7 @@
     const hours = $("#timeseries-hours").value;
     try {
       const points = await fetchJSON(
-        `/api/dashboard/timeseries?interval=${interval}&hours=${hours}`
+        tenantQS(`/api/dashboard/timeseries?interval=${interval}&hours=${hours}`)
       );
       drawBarChart(
         "timeseries-chart",
@@ -118,7 +145,7 @@
     const groupBy = $("#costs-group").value;
     try {
       const entries = await fetchJSON(
-        `/api/dashboard/costs?group_by=${groupBy}&hours=24`
+        tenantQS(`/api/dashboard/costs?group_by=${groupBy}&hours=24`)
       );
       const tbody = $("#costs-body");
       tbody.innerHTML = "";
@@ -183,11 +210,87 @@
     return el.innerHTML;
   }
 
+  // API Keys table
+  async function loadAPIKeys() {
+    try {
+      const keys = await fetchJSON("/api/admin/api-keys");
+      const tbody = $("#apikeys-body");
+      tbody.innerHTML = "";
+      if (!keys || !keys.length) {
+        tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:#8b949e">No data</td></tr>';
+        return;
+      }
+      for (const k of keys) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${esc(k.api_key_hash)}</td><td>${k.requests}</td><td>$${fmt(k.total_cost_usd)}</td>`;
+        tbody.appendChild(tr);
+      }
+    } catch (e) { /* admin API may not be enabled */ }
+  }
+
+  // Budget Rules table
+  async function loadRules() {
+    try {
+      const rules = await adminFetch("/api/admin/budgets/rules");
+      const tbody = $("#rules-body");
+      tbody.innerHTML = "";
+      if (!rules || !rules.length) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#8b949e">No rules configured</td></tr>';
+        return;
+      }
+      for (const r of rules) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${esc(r.api_key_pattern || r.APIKeyPattern || "")}</td>
+          <td>${r.daily_limit_usd || r.DailyLimitUSD || 0}</td>
+          <td>${r.monthly_limit_usd || r.MonthlyLimitUSD || 0}</td>
+          <td>${r.action || r.Action || ""}</td>
+          <td><button class="btn-delete" data-pattern="${esc(r.api_key_pattern || r.APIKeyPattern || "")}">&#215;</button></td>
+        `;
+        tbody.appendChild(tr);
+      }
+      // Wire delete buttons
+      for (const btn of tbody.querySelectorAll(".btn-delete")) {
+        btn.addEventListener("click", async () => {
+          await adminFetch("/api/admin/budgets/rules?pattern=" + encodeURIComponent(btn.dataset.pattern), { method: "DELETE" });
+          loadRules();
+        });
+      }
+    } catch (e) { /* admin API may not be enabled */ }
+  }
+
+  // Add Rule button
+  $("#add-rule-btn").addEventListener("click", async () => {
+    const rule = {
+      api_key_pattern: $("#rule-pattern").value,
+      daily_limit_usd: parseFloat($("#rule-daily").value) || 0,
+      monthly_limit_usd: parseFloat($("#rule-monthly").value) || 0,
+      action: $("#rule-action").value,
+    };
+    await adminFetch("/api/admin/budgets/rules", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(rule),
+    });
+    $("#rule-pattern").value = "";
+    $("#rule-daily").value = "";
+    $("#rule-monthly").value = "";
+    loadRules();
+  });
+
+  // Tenant filter Apply button
+  $("#apply-tenant").addEventListener("click", () => {
+    currentTenant = $("#tenant-filter").value.trim();
+    loadAll();
+  });
+
   function loadAll() {
     loadSummary();
     loadTimeseries();
     loadCosts();
     loadSessions();
+    loadAPIKeys();
+    loadRules();
   }
 
   // Event listeners for controls

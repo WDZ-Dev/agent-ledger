@@ -54,13 +54,17 @@ type Config struct {
 	GhostMinCostUSD    float64 `mapstructure:"ghost_min_cost_usd"`
 }
 
+// AlertNotifier is an optional callback for sending agent alerts to external systems.
+type AlertNotifier func(ctx context.Context, agentAlert Alert)
+
 // Tracker manages agent session lifecycle, loop detection, and ghost detection.
 type Tracker struct {
-	store    SessionStore
-	detector *Detector
-	metrics  MetricsRecorder
-	logger   *slog.Logger
-	cfg      Config
+	store         SessionStore
+	detector      *Detector
+	metrics       MetricsRecorder
+	alertNotifier AlertNotifier
+	logger        *slog.Logger
+	cfg           Config
 
 	mu       sync.RWMutex
 	sessions map[string]*trackedSession
@@ -106,6 +110,12 @@ func NewTracker(store SessionStore, cfg Config, metrics MetricsRecorder, logger 
 // Enabled returns true if any agent tracking features are configured.
 func (t *Tracker) Enabled() bool {
 	return t.cfg.LoopThreshold > 0 || t.cfg.GhostMaxAgeMins > 0
+}
+
+// SetAlertNotifier registers an optional callback that is invoked whenever the
+// tracker produces a loop or ghost alert.
+func (t *Tracker) SetAlertNotifier(fn AlertNotifier) {
+	t.alertNotifier = fn
 }
 
 // TrackCall records a request in a session and runs loop detection.
@@ -169,6 +179,9 @@ func (t *Tracker) TrackCall(sessionID, agentID, userID, task, model, path string
 				"agent_id", agentID,
 				"path", path,
 			)
+			if t.alertNotifier != nil {
+				t.alertNotifier(context.Background(), *alert)
+			}
 			return alert
 		}
 	}
@@ -353,6 +366,9 @@ func (t *Tracker) detectGhosts() {
 				"cost_usd", ts.session.TotalCostUSD,
 				"age", time.Since(ts.session.StartedAt).String(),
 			)
+			if t.alertNotifier != nil {
+				t.alertNotifier(context.Background(), *alert)
+			}
 		}
 	}
 }

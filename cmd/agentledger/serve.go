@@ -213,6 +213,25 @@ func runServe(configPath string) error {
 		)
 	}
 
+	// Wire alerting into agent tracker.
+	if notifier != nil && tracker.Enabled() {
+		tracker.SetAlertNotifier(func(ctx context.Context, agentAlert agent.Alert) {
+			severity := "warning"
+			if agentAlert.Type == "ghost_detected" {
+				severity = "critical"
+			}
+			_ = notifier.Notify(ctx, alert.Alert{
+				Type:     agentAlert.Type,
+				Severity: severity,
+				Message:  agentAlert.Message,
+				Details: map[string]string{
+					"session_id": agentAlert.SessionID,
+					"agent_id":   agentAlert.AgentID,
+				},
+			})
+		})
+	}
+
 	// Tenant resolver (optional).
 	var tenantResolver tenant.Resolver
 	if cfg.Tenants.Enabled {

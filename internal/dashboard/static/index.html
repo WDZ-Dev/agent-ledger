@@ -13,6 +13,16 @@
   </header>
 
   <main>
+    <section class="filter-bar" id="filter-bar">
+      <label for="tenant-filter">Tenant:</label>
+      <input type="text" id="tenant-filter" placeholder="all tenants">
+      <button id="apply-tenant">Apply</button>
+      <span class="filter-sep"></span>
+      <label for="admin-token">Admin Token:</label>
+      <input type="password" id="admin-token" placeholder="token">
+      <button id="save-token">Save</button>
+    </section>
+
     <section class="cards" id="summary-cards">
       <div class="card">
         <span class="card-label">Today's Spend</span>
@@ -90,6 +100,38 @@
         </thead>
         <tbody id="sessions-body"></tbody>
       </table>
+    </section>
+
+    <section class="panel">
+      <h2>API Keys (This Month)</h2>
+      <table id="apikeys-table">
+        <thead>
+          <tr><th>API Key Hash</th><th>Requests</th><th>Cost (USD)</th></tr>
+        </thead>
+        <tbody id="apikeys-body"></tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2>Budget Rules</h2>
+      </div>
+      <table id="rules-table">
+        <thead>
+          <tr><th>API Key Pattern</th><th>Daily Limit</th><th>Monthly Limit</th><th>Action</th><th></th></tr>
+        </thead>
+        <tbody id="rules-body"></tbody>
+      </table>
+      <div class="add-rule-form" id="add-rule-form">
+        <input type="text" id="rule-pattern" placeholder="sk-proj-*">
+        <input type="number" id="rule-daily" placeholder="Daily USD" step="0.01">
+        <input type="number" id="rule-monthly" placeholder="Monthly USD" step="0.01">
+        <select id="rule-action">
+          <option value="block">Block</option>
+          <option value="warn">Warn</option>
+        </select>
+        <button id="add-rule-btn">Add Rule</button>
+      </div>
     </section>
   </main>
 
