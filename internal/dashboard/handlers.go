@@ -96,15 +96,15 @@ func (h *Handler) handleTimeseries(w http.ResponseWriter, r *http.Request) {
 		interval = "hour"
 	}
 
-	hours, _ := strconv.Atoi(r.URL.Query().Get("hours"))
-	if hours <= 0 {
-		hours = 24
+	hoursF, _ := strconv.ParseFloat(r.URL.Query().Get("hours"), 64)
+	if hoursF <= 0 {
+		hoursF = 24
 	}
 
 	tenantID := r.URL.Query().Get("tenant")
 
 	now := time.Now().UTC()
-	since := now.Add(-time.Duration(hours) * time.Hour)
+	since := now.Add(-time.Duration(hoursF * float64(time.Hour)))
 
 	points, err := h.ledger.QueryCostTimeseries(r.Context(), interval, since, now, tenantID)
 	if err != nil {

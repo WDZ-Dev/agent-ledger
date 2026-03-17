@@ -129,7 +129,10 @@ func (p *Postgres) QueryCosts(ctx context.Context, filter CostFilter) ([]CostEnt
 
 func (p *Postgres) QueryCostTimeseries(ctx context.Context, interval string, since, until time.Time, tenantID string) ([]TimeseriesPoint, error) {
 	bucket := "date_trunc('hour', timestamp)"
-	if interval == "day" {
+	switch interval {
+	case "minute":
+		bucket = "date_trunc('minute', timestamp)"
+	case "day":
 		bucket = "date_trunc('day', timestamp)"
 	}
 

@@ -110,6 +110,9 @@
     if (interval === "day") {
       return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
     }
+    if (interval === "minute") {
+      return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    }
     const now = new Date();
     if (d.toDateString() === now.toDateString()) {
       return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
@@ -119,9 +122,10 @@
   }
 
   async function loadTimeseries() {
-    const hours = parseInt($("#timeseries-hours").value);
-    const interval = hours <= 24 ? "hour" : "day";
-    const useArea = hours > 168;
+    const hours = parseFloat($("#timeseries-hours").value);
+    let interval = "hour";
+    if (hours <= 6) interval = "minute";
+    else if (hours > 24) interval = "day";
 
     try {
       const points = await fetchJSON(
@@ -135,20 +139,18 @@
       if (timeseriesChart) timeseriesChart.destroy();
 
       timeseriesChart = new Chart(ctx, {
-        type: useArea ? "line" : "bar",
+        type: "line",
         data: {
           labels,
           datasets: [{
             label: "Cost (USD)",
             data: values,
-            backgroundColor: useArea ? "rgba(56, 139, 253, 0.12)" : "rgba(56, 139, 253, 0.7)",
+            backgroundColor: "rgba(56, 139, 253, 0.12)",
             borderColor: "rgba(56, 139, 253, 1)",
-            borderWidth: useArea ? 2 : 0,
-            borderRadius: useArea ? 0 : 4,
-            maxBarThickness: 60,
-            fill: useArea,
+            borderWidth: 2,
+            fill: true,
             tension: 0.35,
-            pointRadius: useArea ? 3 : 0,
+            pointRadius: data.length > 60 ? 0 : 3,
             pointBackgroundColor: "rgba(56, 139, 253, 1)",
             pointBorderColor: "#161b22",
             pointBorderWidth: 2,
@@ -172,7 +174,7 @@
           scales: {
             x: {
               grid: { color: "rgba(33,38,45,0.5)", drawBorder: false },
-              ticks: { color: "#8b949e", font: { size: 11 }, maxRotation: 0, autoSkip: true, maxTicksLimit: useArea ? 10 : 14 },
+              ticks: { color: "#8b949e", font: { size: 11 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 10 },
             },
             y: {
               beginAtZero: true,
