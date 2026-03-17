@@ -9,6 +9,8 @@ export OPENAI_BASE_URL=http://localhost:8787/v1
 # That's it. Your agents now have cost tracking and budget enforcement.
 ```
 
+**[Documentation](https://wdz-dev.github.io/agent-ledger/)** | **[GitHub](https://github.com/WDZ-Dev/agent-ledger)**
+
 ## Why AgentLedger?
 
 AI agents make dozens of LLM calls per task. Costs compound fast, loops happen silently, and provider dashboards only show you the damage after the fact.
@@ -23,7 +25,7 @@ AgentLedger gives you:
 - **Dashboard** — embedded web UI for real-time cost visibility
 - **Observability** — OpenTelemetry metrics with Prometheus endpoint
 - **Circuit breaker** — automatic upstream failure protection
-- **Multi-provider** — OpenAI, Anthropic, Groq, Mistral, DeepSeek, Gemini, Cohere
+- **Multi-provider** — 15 providers: OpenAI, Anthropic, Azure OpenAI, Gemini, Groq, Mistral, DeepSeek, Cohere, xAI, Perplexity, Together AI, Fireworks AI, OpenRouter, Cerebras, SambaNova
 - **Multi-tenancy** — isolate costs by team/org with tenant-scoped budgets
 - **Alerting** — Slack and webhook notifications for budget warnings and anomalies
 - **Rate limiting** — per-key request throttling with sliding window counters
@@ -82,16 +84,19 @@ const openai = new OpenAI({ baseURL: 'http://localhost:8787/v1' });
 # Claude Code
 export ANTHROPIC_BASE_URL=http://localhost:8787
 
-# Groq, Mistral, DeepSeek — route via path prefix
+# Other providers — route via path prefix
 # curl http://localhost:8787/groq/v1/chat/completions
 # curl http://localhost:8787/mistral/v1/chat/completions
 # curl http://localhost:8787/deepseek/v1/chat/completions
-
-# Gemini
 # curl http://localhost:8787/gemini/v1beta/models/gemini-2.5-pro:generateContent
-
-# Cohere
 # curl http://localhost:8787/cohere/v2/chat
+# curl http://localhost:8787/xai/v1/chat/completions
+# curl http://localhost:8787/together/v1/chat/completions
+# curl http://localhost:8787/fireworks/v1/chat/completions
+# curl http://localhost:8787/perplexity/v1/chat/completions
+# curl http://localhost:8787/openrouter/v1/chat/completions
+# curl http://localhost:8787/cerebras/v1/chat/completions
+# curl http://localhost:8787/sambanova/v1/chat/completions
 ```
 
 ### Check your costs
@@ -126,13 +131,13 @@ cd deploy && docker compose up
 ┌─────────────┐       ┌──────────────────────┐       ┌──────────────┐
 │   Agents    │──────▶│    AgentLedger :8787  │──────▶│  OpenAI      │
 │  (any SDK)  │       │                      │       │  Anthropic   │
-└─────────────┘       │  ┌────────────────┐  │       │  Groq        │
-                      │  │ Rate Limiting  │  │       │  Mistral     │
-┌─────────────┐       │  │ Budget Check   │  │       │  DeepSeek    │
-│ MCP Servers │◀─────▶│  │ Token Metering │  │       │  Gemini      │
-│(stdio/HTTP) │       │  │ Agent Sessions │  │       │  Cohere      │
-└─────────────┘       │  │ Cost Calc      │  │       └──────────────┘
-                      │  │ Async Record   │  │
+└─────────────┘       │  ┌────────────────┐  │       │  Azure OpenAI│
+                      │  │ Rate Limiting  │  │       │  Gemini      │
+┌─────────────┐       │  │ Budget Check   │  │       │  Groq        │
+│ MCP Servers │◀─────▶│  │ Token Metering │  │       │  Mistral     │
+│(stdio/HTTP) │       │  │ Agent Sessions │  │       │  DeepSeek    │
+└─────────────┘       │  │ Cost Calc      │  │       │  + 8 more    │
+                      │  │ Async Record   │  │       └──────────────┘
                       │  └────────────────┘  │       ┌──────────────┐
                       │          │           │──────▶│  Slack       │
                       │  ┌───────▼────────┐  │       │  Webhooks    │
@@ -168,15 +173,23 @@ Every request is metered with provider-reported token counts. When streaming res
 
 | Provider | Routing | Models |
 |----------|---------|--------|
-| OpenAI | `/v1/` (default) | gpt-4.1, gpt-4.1-mini, gpt-4.1-nano, gpt-4o, gpt-4o-mini, o3, o3-mini, o4-mini, o1, o1-mini, gpt-4-turbo, gpt-4, gpt-3.5-turbo |
-| Anthropic | `/v1/messages` | claude-opus-4, claude-sonnet-4, claude-haiku-4, claude-3.5-sonnet, claude-3.5-haiku, claude-3-opus, claude-3-sonnet, claude-3-haiku |
+| OpenAI | `/v1/` (default) | gpt-5 family, gpt-4.1, gpt-4.1-mini, gpt-4.1-nano, gpt-4o, gpt-4o-mini, o3, o3-pro, o3-mini, o4-mini, o1, o1-pro, o1-mini, gpt-4-turbo, gpt-4, gpt-3.5-turbo |
+| Anthropic | `/v1/messages` | claude-opus-4.6, claude-sonnet-4.6, claude-opus-4.5, claude-sonnet-4.5, claude-haiku-4.5, claude-opus-4, claude-sonnet-4, claude-3.7-sonnet, claude-3.5-sonnet, claude-3.5-haiku, claude-3-opus, claude-3-haiku |
+| Azure OpenAI | `/azure/` | Same as OpenAI (custom deployment names) |
+| Gemini | `/gemini/` | gemini-2.5-pro, gemini-2.5-flash, gemini-2.0-flash, gemini-1.5-pro, gemini-1.5-flash |
 | Groq | `/groq/v1/` | llama-3.3-70b-versatile, llama-3.1-8b-instant, mixtral-8x7b-32768, gemma2-9b-it |
 | Mistral | `/mistral/v1/` | mistral-large-latest, mistral-small-latest, codestral-latest, open-mistral-nemo |
 | DeepSeek | `/deepseek/v1/` | deepseek-chat, deepseek-reasoner |
-| Gemini | `/gemini/` | gemini-2.5-pro, gemini-2.5-flash, gemini-2.0-flash, gemini-1.5-pro, gemini-1.5-flash |
 | Cohere | `/cohere/` | command-r-plus, command-r, command-light |
+| xAI | `/xai/v1/` | grok-3, grok-3-mini, grok-2 |
+| Perplexity | `/perplexity/v1/` | sonar-pro, sonar, sonar-reasoning |
+| Together AI | `/together/v1/` | Llama 3.3 70B, Llama 3.1 405B/8B, Qwen 2.5 72B, DeepSeek V3 |
+| Fireworks AI | `/fireworks/v1/` | Llama 3.3 70B, Llama 3.1 8B, Qwen 2.5 72B |
+| OpenRouter | `/openrouter/v1/` | Any model via OpenRouter routing |
+| Cerebras | `/cerebras/v1/` | llama-3.3-70b, llama-3.1-8b |
+| SambaNova | `/sambanova/v1/` | Llama 3.3 70B, Llama 3.1 8B |
 
-Groq, Mistral, and DeepSeek use the OpenAI-compatible API format. Gemini and Cohere have custom parsers. Versioned model names (e.g., `gpt-4o-2024-11-20`) are matched via longest prefix.
+**83+ models** with built-in pricing. Groq, Mistral, DeepSeek, xAI, Perplexity, Together, Fireworks, OpenRouter, Cerebras, and SambaNova use the OpenAI-compatible API format. Gemini and Cohere have custom parsers. Versioned model names (e.g., `gpt-4o-2024-11-20`) are matched via longest prefix.
 
 ### Budget Enforcement
 
@@ -395,6 +408,13 @@ agentledger costs       Show cost report
   --last                Time window: 1h, 24h, 7d, 30d (default: 24h)
   --by                  Group by: model, provider, key (default: model)
 
+agentledger export      Export cost data as CSV or JSON
+  -c, --config          Path to config file
+  --last                Time window (default: 30d)
+  --by                  Group by: model, provider, key, agent, session
+  -f, --format          Output format: csv or json (default: csv)
+  --tenant              Filter by tenant ID
+
 agentledger mcp-wrap    Wrap an MCP server process for tool call metering
   -c, --config          Path to config file
   -- command [args...]  MCP server command to wrap
@@ -442,6 +462,8 @@ make docker        # Build Docker image
 make docker-run    # Build and run in Docker
 make helm-lint     # Lint Helm chart
 make release-dry   # GoReleaser snapshot
+make docs          # Build documentation site
+make docs-serve    # Serve docs locally with live reload
 ```
 
 ## Project Structure
@@ -452,6 +474,7 @@ agent-ledger/
 │   ├── main.go                Root command + healthcheck (cobra)
 │   ├── serve.go               Proxy server command
 │   ├── costs.go               Cost report command
+│   ├── export.go              CSV/JSON export command
 │   └── mcpwrap.go             MCP stdio wrapper command
 ├── internal/
 │   ├── proxy/                 Reverse proxy core
@@ -467,10 +490,18 @@ agent-ledger/
 │   │   ├── groq.go            Groq (OpenAI-compatible)
 │   │   ├── mistral.go         Mistral (OpenAI-compatible)
 │   │   ├── deepseek.go        DeepSeek (OpenAI-compatible)
+│   │   ├── azure.go           Azure OpenAI
+│   │   ├── xai.go             xAI/Grok (OpenAI-compatible)
+│   │   ├── perplexity.go      Perplexity (OpenAI-compatible)
+│   │   ├── together.go        Together AI (OpenAI-compatible)
+│   │   ├── fireworks.go       Fireworks AI (OpenAI-compatible)
+│   │   ├── openrouter.go      OpenRouter (OpenAI-compatible)
+│   │   ├── cerebras.go        Cerebras (OpenAI-compatible)
+│   │   ├── sambanova.go       SambaNova (OpenAI-compatible)
 │   │   └── registry.go        Auto-detect provider from request + path prefix routing
 │   ├── meter/                 Cost calculation
 │   │   ├── meter.go           Token-to-USD conversion
-│   │   ├── pricing.go         Model pricing table (20 models)
+│   │   ├── pricing.go         Model pricing table (83+ models)
 │   │   └── estimator.go       Tiktoken fallback estimation
 │   ├── ledger/                Storage layer
 │   │   ├── ledger.go          Ledger interface
@@ -497,7 +528,8 @@ agent-ledger/
 │   │   └── provider.go        Prometheus exporter setup
 │   ├── dashboard/             Web UI
 │   │   ├── handlers.go        REST API handlers
-│   │   └── server.go          HTTP server + embedded assets
+│   │   ├── server.go          HTTP server + embedded assets
+│   │   └── static/            Embedded JS/CSS/HTML assets
 │   ├── tenant/                Multi-tenancy
 │   │   └── tenant.go          Tenant resolver (header/config/chain)
 │   ├── alert/                 Alerting
@@ -517,11 +549,19 @@ agent-ledger/
 │   └── helm/agentledger/      Kubernetes Helm chart
 ├── configs/
 │   └── agentledger.example.yaml
+├── docs/                        MkDocs Material documentation site
+│   ├── getting-started/         Installation, quickstart, CLI reference
+│   ├── configuration/           Config overview and full reference
+│   ├── features/                Per-feature documentation
+│   ├── deployment/              Docker and Kubernetes guides
+│   └── stylesheets/             Custom CSS overrides
 ├── .github/workflows/
 │   ├── ci.yml                 Lint, test, build, vulncheck
-│   └── release.yml            GoReleaser on tag push
+│   ├── release.yml            GoReleaser on tag push
+│   └── docs.yml               Build and deploy docs to GitHub Pages
 ├── Dockerfile                 Multi-stage Docker build
 ├── .goreleaser.yml            Cross-platform release config
+├── mkdocs.yml                   Documentation site config
 ├── Makefile
 ├── go.mod
 └── lefthook.yml               Pre-commit and pre-push hooks
@@ -535,7 +575,7 @@ agent-ledger/
 - [x] **Phase 4: Observability** — OpenTelemetry metrics, Prometheus endpoint, web dashboard
 - [x] **Phase 5: MCP Integration** — Meter MCP tool calls alongside LLM costs
 - [x] **Phase 6: Polish & Launch** — Docker, GoReleaser, Helm chart, docs
-- [x] **Phase 7: Multi-Provider** — Groq, Mistral, DeepSeek, Gemini, Cohere with path-prefix routing
+- [x] **Phase 7: Multi-Provider** — 15 providers with path-prefix routing (Groq, Mistral, DeepSeek, Gemini, Cohere, xAI, Perplexity, Together, Fireworks, OpenRouter, Cerebras, SambaNova, Azure)
 - [x] **Phase 8: Postgres** — Production-grade PostgreSQL storage backend
 - [x] **Phase 9: Multi-Tenancy** — Tenant isolation with header and config-based resolution
 - [x] **Phase 10: Alerting** — Slack and webhook notifications with deduplication
