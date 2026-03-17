@@ -58,7 +58,7 @@ func runCosts(configPath, last, groupBy, tenant string) error {
 
 	var store ledger.Ledger
 	switch cfg.Storage.Driver {
-	case "postgres":
+	case "postgres": //nolint:goconst
 		store, err = ledger.NewPostgres(cfg.Storage.DSN, cfg.Storage.MaxOpenConns, cfg.Storage.MaxIdleConns)
 	default:
 		store, err = ledger.NewSQLite(cfg.Storage.DSN)
