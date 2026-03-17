@@ -6,7 +6,7 @@ A Go-based open-source reverse proxy that provides real-time cost attribution, b
 
 ## Quick Context
 
-- **What:** Transparent reverse proxy between AI agents and LLM APIs (OpenAI, Anthropic, Groq, Mistral, DeepSeek, Gemini, Cohere)
+- **What:** Transparent reverse proxy between AI agents and LLM APIs (OpenAI, Anthropic, Azure OpenAI, Groq, Mistral, DeepSeek, Gemini, Cohere, Together AI, Fireworks AI, Perplexity, OpenRouter, xAI, Cerebras, SambaNova)
 - **How:** `export OPENAI_BASE_URL=http://localhost:8787/v1` — zero code changes
 - **Why:** No tool tracks per-agent-execution costs, detects loops, or meters MCP calls
 - **Language:** Go — single binary, zero runtime dependencies
@@ -37,7 +37,7 @@ Agents → AgentLedger (Go proxy :8787) → LLM APIs (OpenAI, Anthropic, Groq, M
 |---------|---------|
 | `cmd/agentledger/` | CLI entrypoint (cobra): `serve`, `costs`, `version` |
 | `internal/proxy/` | Core reverse proxy (`httputil.ReverseProxy`), SSE streaming, middleware chain |
-| `internal/provider/` | Provider interface + OpenAI/Anthropic/Gemini/Cohere parsers, OpenAI-compatible base type, path-prefix routing |
+| `internal/provider/` | Provider interface + OpenAI/Anthropic/Azure/Gemini/Cohere parsers, OpenAI-compatible base type (Groq, Mistral, DeepSeek, Together, Fireworks, Perplexity, OpenRouter, xAI, Cerebras, SambaNova), path-prefix routing |
 | `internal/meter/` | Cost calculation engine, model pricing table, tiktoken-go fallback |
 | `internal/ledger/` | Storage interface, SQLite (modernc.org/sqlite, CGO-free) + Postgres impls, multi-tenant queries |
 | `internal/budget/` | Budget enforcement middleware, circuit breaker |

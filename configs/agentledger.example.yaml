@@ -38,6 +38,46 @@ providers:
   #     upstream: "https://api.cohere.com"
   #     path_prefix: "/cohere"
   #     enabled: true
+  #   azure:
+  #     type: "azure"                                # Azure OpenAI (custom URL scheme)
+  #     upstream: "https://my-resource.openai.azure.com"
+  #     path_prefix: "/azure"
+  #     enabled: true
+  #   together:
+  #     type: "openai"
+  #     upstream: "https://api.together.xyz"
+  #     path_prefix: "/together"
+  #     enabled: true
+  #   fireworks:
+  #     type: "openai"
+  #     upstream: "https://api.fireworks.ai/inference"
+  #     path_prefix: "/fireworks"
+  #     enabled: true
+  #   perplexity:
+  #     type: "openai"
+  #     upstream: "https://api.perplexity.ai"
+  #     path_prefix: "/perplexity"
+  #     enabled: true
+  #   openrouter:
+  #     type: "openai"
+  #     upstream: "https://openrouter.ai/api"
+  #     path_prefix: "/openrouter"
+  #     enabled: true
+  #   xai:
+  #     type: "openai"                               # xAI (Grok)
+  #     upstream: "https://api.x.ai"
+  #     path_prefix: "/xai"
+  #     enabled: true
+  #   cerebras:
+  #     type: "openai"
+  #     upstream: "https://api.cerebras.ai"
+  #     path_prefix: "/cerebras"
+  #     enabled: true
+  #   sambanova:
+  #     type: "openai"
+  #     upstream: "https://api.sambanova.ai"
+  #     path_prefix: "/sambanova"
+  #     enabled: true
 
 storage:
   driver: "sqlite"                  # "sqlite" or "postgres"

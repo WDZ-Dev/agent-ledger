@@ -86,3 +86,60 @@ func TestPrefixMatchLongestWins(t *testing.T) {
 		t.Errorf("expected $0.15 (gpt-4o-mini pricing), got $%f", cost)
 	}
 }
+
+func TestNewestModelsKnown(t *testing.T) {
+	m := New()
+
+	models := []string{
+		// OpenAI — GPT-5 family
+		"gpt-5",
+		"gpt-5-mini",
+		"gpt-5-nano",
+		"gpt-5-pro",
+		"gpt-5-codex",
+		"gpt-5.1",
+		"gpt-5.2",
+		"gpt-5.2-pro",
+		"gpt-5.4",
+		"gpt-5.4-pro",
+		// OpenAI — reasoning
+		"o3-pro",
+		"o1-pro",
+		"o4-mini",
+		// OpenAI — GPT-4.1
+		"gpt-4.1",
+		"gpt-4.1-mini",
+		"gpt-4.1-nano",
+		// Anthropic 4.5/4.6
+		"claude-opus-4.6",
+		"claude-sonnet-4.6",
+		"claude-haiku-4.5",
+		// Anthropic — dated variants (prefix match)
+		"claude-opus-4.6-20260101",
+		"claude-sonnet-4.6-20260101",
+		"claude-haiku-4.5-20251001",
+		// Anthropic — thinking variants (prefix match)
+		"claude-opus-4.6-thinking",
+		"claude-sonnet-4.5-thinking",
+		// xAI
+		"grok-3",
+		"grok-3-mini",
+	}
+
+	for _, model := range models {
+		if !m.KnownModel(model) {
+			t.Errorf("%q should be a known model", model)
+		}
+	}
+}
+
+func TestO3ProNotConfusedWithO3(t *testing.T) {
+	m := New()
+
+	// o3-pro must NOT use o3 pricing ($10/$40), it should use its own ($150/$600)
+	cost := m.Calculate("o3-pro", 1_000_000, 0)
+	// o3-pro input: $150 per MTok
+	if math.Abs(cost-150.00) > 1e-9 {
+		t.Errorf("o3-pro: expected $150.00 input cost, got $%f (may have matched o3 instead)", cost)
+	}
+}
