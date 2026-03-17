@@ -43,7 +43,7 @@ func (m *mockStore) GetTotalSpendByTenant(_ context.Context, _ string, _, _ time
 	return m.totalSpend, nil
 }
 
-func (m *mockStore) QueryCostTimeseries(_ context.Context, _ string, _, _ time.Time) ([]ledger.TimeseriesPoint, error) {
+func (m *mockStore) QueryCostTimeseries(_ context.Context, _ string, _, _ time.Time, _ string) ([]ledger.TimeseriesPoint, error) {
 	return nil, nil
 }
 

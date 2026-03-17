@@ -33,12 +33,14 @@ func (h *Handler) handleSummary(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UTC()
 	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	tenantID := r.URL.Query().Get("tenant")
 
 	// Get today's costs by model.
 	todayCosts, err := h.ledger.QueryCosts(r.Context(), ledger.CostFilter{
-		Since:   dayStart,
-		Until:   now,
-		GroupBy: "model",
+		Since:    dayStart,
+		Until:    now,
+		GroupBy:  "model",
+		TenantID: tenantID,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -54,9 +56,10 @@ func (h *Handler) handleSummary(w http.ResponseWriter, r *http.Request) {
 
 	// Get month's costs.
 	monthCosts, err := h.ledger.QueryCosts(r.Context(), ledger.CostFilter{
-		Since:   monthStart,
-		Until:   now,
-		GroupBy: "model",
+		Since:    monthStart,
+		Until:    now,
+		GroupBy:  "model",
+		TenantID: tenantID,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -93,10 +96,12 @@ func (h *Handler) handleTimeseries(w http.ResponseWriter, r *http.Request) {
 		hours = 24
 	}
 
+	tenantID := r.URL.Query().Get("tenant")
+
 	now := time.Now().UTC()
 	since := now.Add(-time.Duration(hours) * time.Hour)
 
-	points, err := h.ledger.QueryCostTimeseries(r.Context(), interval, since, now)
+	points, err := h.ledger.QueryCostTimeseries(r.Context(), interval, since, now, tenantID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

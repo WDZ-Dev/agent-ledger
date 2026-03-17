@@ -154,7 +154,7 @@ func TestPostgres_QueryCostTimeseries(t *testing.T) {
 		}
 	}
 
-	points, err := pg.QueryCostTimeseries(ctx, "hour", hourAgo.Add(-time.Minute), now.Add(time.Minute))
+	points, err := pg.QueryCostTimeseries(ctx, "hour", hourAgo.Add(-time.Minute), now.Add(time.Minute), "")
 	if err != nil {
 		t.Fatalf("QueryCostTimeseries: %v", err)
 	}
