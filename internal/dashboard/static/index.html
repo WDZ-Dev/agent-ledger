@@ -5,11 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AgentLedger Dashboard</title>
   <link rel="stylesheet" href="/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </head>
 <body>
   <header>
-    <h1>AgentLedger</h1>
-    <p class="tagline">Know what your agents cost.</p>
+    <div class="header-content">
+      <div class="header-title">
+        <span class="logo">AgentLedger</span>
+        <span class="tagline">Know what your agents cost.</span>
+      </div>
+    </div>
   </header>
 
   <main>
@@ -23,6 +28,7 @@
       <button id="save-token">Save</button>
     </section>
 
+    <!-- Row 1: Summary cards -->
     <section class="cards" id="summary-cards">
       <div class="card">
         <span class="card-label">Today's Spend</span>
@@ -37,102 +43,186 @@
         <span class="card-value" id="today-requests">--</span>
       </div>
       <div class="card">
+        <span class="card-label">Avg Cost / Request</span>
+        <span class="card-value" id="avg-cost">--</span>
+      </div>
+      <div class="card">
         <span class="card-label">Active Sessions</span>
         <span class="card-value" id="active-sessions">--</span>
       </div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-header">
-        <h2>Cost Over Time</h2>
-        <select id="timeseries-interval">
-          <option value="hour">Hourly</option>
-          <option value="day">Daily</option>
-        </select>
-        <select id="timeseries-hours">
-          <option value="24">Last 24h</option>
-          <option value="72">Last 3 days</option>
-          <option value="168">Last 7 days</option>
-        </select>
-      </div>
-      <div class="chart-container">
-        <canvas id="timeseries-chart"></canvas>
+      <div class="card">
+        <span class="card-label">Error Rate (24h)</span>
+        <span class="card-value" id="error-rate">--</span>
       </div>
     </section>
 
-    <section class="panel">
-      <div class="panel-header">
-        <h2>Cost Breakdown</h2>
-        <select id="costs-group">
-          <option value="model">By Model</option>
-          <option value="provider">By Provider</option>
-          <option value="agent">By Agent</option>
-          <option value="session">By Session</option>
-        </select>
-      </div>
-      <table id="costs-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Requests</th>
-            <th>Input Tokens</th>
-            <th>Output Tokens</th>
-            <th>Cost (USD)</th>
-          </tr>
-        </thead>
-        <tbody id="costs-body"></tbody>
-      </table>
-    </section>
+    <!-- Row 2: Cost chart + Provider donut side by side -->
+    <div class="grid-2col">
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Cost Over Time</h2>
+          <select id="timeseries-hours">
+            <option value="24">Last 24h</option>
+            <option value="72">Last 3 days</option>
+            <option value="168" selected>Last 7 days</option>
+            <option value="720">Last 30 days</option>
+          </select>
+        </div>
+        <div class="chart-container">
+          <canvas id="timeseries-chart"></canvas>
+        </div>
+      </section>
 
-    <section class="panel">
-      <h2>Active Sessions</h2>
-      <table id="sessions-table">
-        <thead>
-          <tr>
-            <th>Session ID</th>
-            <th>Agent</th>
-            <th>User</th>
-            <th>Calls</th>
-            <th>Cost (USD)</th>
-            <th>Status</th>
-            <th>Started</th>
-          </tr>
-        </thead>
-        <tbody id="sessions-body"></tbody>
-      </table>
-    </section>
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Spend by Provider</h2>
+        </div>
+        <div class="chart-container-donut">
+          <canvas id="provider-chart"></canvas>
+        </div>
+      </section>
+    </div>
 
-    <section class="panel">
-      <h2>API Keys (This Month)</h2>
-      <table id="apikeys-table">
-        <thead>
-          <tr><th>API Key Hash</th><th>Requests</th><th>Cost (USD)</th></tr>
-        </thead>
-        <tbody id="apikeys-body"></tbody>
-      </table>
-    </section>
+    <!-- Row 3: Cost breakdown + Top expensive side by side -->
+    <div class="grid-2col">
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Cost Breakdown</h2>
+          <select id="costs-group">
+            <option value="model">By Model</option>
+            <option value="provider">By Provider</option>
+            <option value="agent">By Agent</option>
+            <option value="session">By Session</option>
+          </select>
+        </div>
+        <div class="table-scroll">
+          <table id="costs-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Requests</th>
+                <th>Input Tokens</th>
+                <th>Output Tokens</th>
+                <th>Cost (USD)</th>
+              </tr>
+            </thead>
+            <tbody id="costs-body"></tbody>
+          </table>
+        </div>
+      </section>
 
-    <section class="panel">
-      <div class="panel-header">
-        <h2>Budget Rules</h2>
-      </div>
-      <table id="rules-table">
-        <thead>
-          <tr><th>API Key Pattern</th><th>Daily Limit</th><th>Monthly Limit</th><th>Action</th><th></th></tr>
-        </thead>
-        <tbody id="rules-body"></tbody>
-      </table>
-      <div class="add-rule-form" id="add-rule-form">
-        <input type="text" id="rule-pattern" placeholder="sk-proj-*">
-        <input type="number" id="rule-daily" placeholder="Daily USD" step="0.01">
-        <input type="number" id="rule-monthly" placeholder="Monthly USD" step="0.01">
-        <select id="rule-action">
-          <option value="block">Block</option>
-          <option value="warn">Warn</option>
-        </select>
-        <button id="add-rule-btn">Add Rule</button>
-      </div>
-    </section>
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Most Expensive Requests</h2>
+        </div>
+        <div class="table-scroll">
+          <table id="expensive-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Agent</th>
+                <th>Model</th>
+                <th>Tokens</th>
+                <th>Cost</th>
+              </tr>
+            </thead>
+            <tbody id="expensive-body"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <!-- Row 4: Sessions + Error stats -->
+    <div class="grid-2col">
+      <section class="panel">
+        <h2>Active Sessions</h2>
+        <div class="table-scroll">
+          <table id="sessions-table">
+            <thead>
+              <tr>
+                <th>Session ID</th>
+                <th>Agent</th>
+                <th>User</th>
+                <th>Calls</th>
+                <th>Cost (USD)</th>
+                <th>Status</th>
+                <th>Started</th>
+              </tr>
+            </thead>
+            <tbody id="sessions-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Error Breakdown (24h)</h2>
+        <div class="stats-grid" id="error-stats">
+          <div class="stat-item">
+            <span class="stat-label">Total Requests</span>
+            <span class="stat-value" id="stat-total">--</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Errors</span>
+            <span class="stat-value stat-error" id="stat-errors">--</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Rate Limited (429)</span>
+            <span class="stat-value stat-warn" id="stat-429">--</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Server Errors (5xx)</span>
+            <span class="stat-value stat-error" id="stat-5xx">--</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Avg Latency</span>
+            <span class="stat-value" id="stat-latency">--</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Avg Cost / Request</span>
+            <span class="stat-value" id="stat-avg-cost">--</span>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Row 5: API keys + Budget rules -->
+    <div class="grid-2col">
+      <section class="panel">
+        <h2>API Keys (This Month)</h2>
+        <div class="table-scroll">
+          <table id="apikeys-table">
+            <thead>
+              <tr><th>API Key Hash</th><th>Requests</th><th>Cost (USD)</th></tr>
+            </thead>
+            <tbody id="apikeys-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Budget Rules</h2>
+        </div>
+        <div class="table-scroll">
+          <table id="rules-table">
+            <thead>
+              <tr><th>API Key Pattern</th><th>Daily Limit</th><th>Monthly Limit</th><th>Action</th><th></th></tr>
+            </thead>
+            <tbody id="rules-body"></tbody>
+          </table>
+        </div>
+        <div class="add-rule-form" id="add-rule-form">
+          <input type="text" id="rule-pattern" placeholder="sk-proj-*">
+          <input type="number" id="rule-daily" placeholder="Daily USD" step="0.01">
+          <input type="number" id="rule-monthly" placeholder="Monthly USD" step="0.01">
+          <select id="rule-action">
+            <option value="block">Block</option>
+            <option value="warn">Warn</option>
+          </select>
+          <button id="add-rule-btn">Add Rule</button>
+        </div>
+      </section>
+    </div>
   </main>
 
   <script src="/app.js"></script>

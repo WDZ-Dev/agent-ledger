@@ -41,6 +41,12 @@ func (r *recordingLedger) GetTotalSpendByTenant(_ context.Context, _ string, _, 
 func (r *recordingLedger) QueryCostTimeseries(_ context.Context, _ string, _, _ time.Time, _ string) ([]ledger.TimeseriesPoint, error) {
 	return nil, nil
 }
+func (r *recordingLedger) QueryRecentExpensive(_ context.Context, _, _ time.Time, _ string, _ int) ([]ledger.ExpensiveRequest, error) {
+	return nil, nil
+}
+func (r *recordingLedger) QueryErrorStats(_ context.Context, _, _ time.Time, _ string) (*ledger.ErrorStats, error) {
+	return &ledger.ErrorStats{}, nil
+}
 
 func (r *recordingLedger) Close() error { return nil }
 

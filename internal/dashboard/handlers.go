@@ -30,6 +30,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/dashboard/costs", h.handleCosts)
 	mux.HandleFunc("GET /api/dashboard/sessions", h.handleSessions)
 	mux.HandleFunc("GET /api/dashboard/export", h.handleExport)
+	mux.HandleFunc("GET /api/dashboard/expensive", h.handleExpensive)
+	mux.HandleFunc("GET /api/dashboard/stats", h.handleStats)
 }
 
 func (h *Handler) handleSummary(w http.ResponseWriter, r *http.Request) {
@@ -220,6 +222,44 @@ func (h *Handler) handleExport(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, entries)
 	}
+}
+
+func (h *Handler) handleExpensive(w http.ResponseWriter, r *http.Request) {
+	hours, _ := strconv.Atoi(r.URL.Query().Get("hours"))
+	if hours <= 0 {
+		hours = 168
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 {
+		limit = 10
+	}
+	tenantID := r.URL.Query().Get("tenant")
+	now := time.Now().UTC()
+	since := now.Add(-time.Duration(hours) * time.Hour)
+
+	results, err := h.ledger.QueryRecentExpensive(r.Context(), since, now, tenantID, limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, results)
+}
+
+func (h *Handler) handleStats(w http.ResponseWriter, r *http.Request) {
+	hours, _ := strconv.Atoi(r.URL.Query().Get("hours"))
+	if hours <= 0 {
+		hours = 24
+	}
+	tenantID := r.URL.Query().Get("tenant")
+	now := time.Now().UTC()
+	since := now.Add(-time.Duration(hours) * time.Hour)
+
+	stats, err := h.ledger.QueryErrorStats(r.Context(), since, now, tenantID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, stats)
 }
 
 func writeJSON(w http.ResponseWriter, data any) {

@@ -91,7 +91,7 @@ func (p *Postgres) QueryCosts(ctx context.Context, filter CostFilter) ([]CostEnt
 		groupCol = "session_id"
 	}
 
-	where := "timestamp >= $1 AND timestamp <= $2"
+	where := "timestamp >= $1 AND timestamp <= $2" //nolint:goconst
 	args := []any{filter.Since.UTC(), filter.Until.UTC()}
 	if filter.TenantID != "" {
 		args = append(args, filter.TenantID)
@@ -133,7 +133,7 @@ func (p *Postgres) QueryCostTimeseries(ctx context.Context, interval string, sin
 		bucket = "date_trunc('day', timestamp)"
 	}
 
-	where := "timestamp >= $1 AND timestamp <= $2"
+	where := "timestamp >= $1 AND timestamp <= $2" //nolint:goconst
 	args := []any{since.UTC(), until.UTC()}
 	if tenantID != "" {
 		args = append(args, tenantID)
@@ -186,6 +186,69 @@ func (p *Postgres) GetTotalSpendByTenant(ctx context.Context, tenantID string, s
 		return 0, fmt.Errorf("querying tenant spend: %w", err)
 	}
 	return total, nil
+}
+
+func (p *Postgres) QueryRecentExpensive(ctx context.Context, since, until time.Time, tenantID string, limit int) ([]ExpensiveRequest, error) {
+	where := "timestamp >= $1 AND timestamp <= $2" //nolint:goconst //nolint:goconst
+	args := []any{since.UTC(), until.UTC()}
+	if tenantID != "" {
+		args = append(args, tenantID)
+		where += fmt.Sprintf(" AND tenant_id = $%d", len(args))
+	}
+	args = append(args, limit)
+
+	q := fmt.Sprintf(`SELECT timestamp, provider, model, agent_id, `+ //nolint:gosec // where clause is built from trusted code, not user input
+		`input_tokens, output_tokens, cost_usd, duration_ms
+	FROM usage_records WHERE %s
+	ORDER BY cost_usd DESC LIMIT $%d`, where, len(args))
+
+	rows, err := p.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("querying expensive requests: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var results []ExpensiveRequest
+	for rows.Next() {
+		var r ExpensiveRequest
+		if err := rows.Scan(&r.Timestamp, &r.Provider, &r.Model, &r.AgentID,
+			&r.InputTokens, &r.OutputTokens, &r.CostUSD, &r.DurationMS); err != nil {
+			return nil, fmt.Errorf("scanning expensive request: %w", err)
+		}
+		results = append(results, r)
+	}
+	return results, rows.Err()
+}
+
+func (p *Postgres) QueryErrorStats(ctx context.Context, since, until time.Time, tenantID string) (*ErrorStats, error) {
+	where := "timestamp >= $1 AND timestamp <= $2" //nolint:goconst //nolint:goconst
+	args := []any{since.UTC(), until.UTC()}
+	if tenantID != "" {
+		args = append(args, tenantID)
+		where += fmt.Sprintf(" AND tenant_id = $%d", len(args))
+	}
+
+	q := fmt.Sprintf(`SELECT
+		COUNT(*),
+		SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END),
+		SUM(CASE WHEN status_code = 429 THEN 1 ELSE 0 END),
+		SUM(CASE WHEN status_code >= 500 THEN 1 ELSE 0 END),
+		COALESCE(AVG(duration_ms), 0),
+		COALESCE(AVG(cost_usd), 0)
+	FROM usage_records WHERE %s`, where)
+
+	var stats ErrorStats
+	if err := p.db.QueryRowContext(ctx, q, args...).Scan(
+		&stats.TotalRequests, &stats.ErrorRequests,
+		&stats.Count429, &stats.Count5xx,
+		&stats.AvgDurationMS, &stats.AvgCostPerReq,
+	); err != nil {
+		return nil, fmt.Errorf("querying error stats: %w", err)
+	}
+	if stats.TotalRequests > 0 {
+		stats.ErrorRate = float64(stats.ErrorRequests) / float64(stats.TotalRequests)
+	}
+	return &stats, nil
 }
 
 // UpsertSession inserts or updates an agent session record.

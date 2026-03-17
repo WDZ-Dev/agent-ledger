@@ -47,6 +47,14 @@ func (m *mockStore) QueryCostTimeseries(_ context.Context, _ string, _, _ time.T
 	return nil, nil
 }
 
+func (m *mockStore) QueryRecentExpensive(_ context.Context, _, _ time.Time, _ string, _ int) ([]ledger.ExpensiveRequest, error) {
+	return nil, nil
+}
+
+func (m *mockStore) QueryErrorStats(_ context.Context, _, _ time.Time, _ string) (*ledger.ErrorStats, error) {
+	return &ledger.ErrorStats{}, nil
+}
+
 func (m *mockStore) Close() error { return nil }
 
 func setupTestProxy(t *testing.T, upstream *httptest.Server) (*Proxy, *ledger.Recorder, *mockStore) {
