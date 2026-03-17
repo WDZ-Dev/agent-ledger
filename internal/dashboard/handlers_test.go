@@ -26,7 +26,7 @@ func (s *stubLedger) GetTotalSpend(_ context.Context, _ string, _, _ time.Time) 
 func (s *stubLedger) GetTotalSpendByTenant(_ context.Context, _ string, _, _ time.Time) (float64, error) {
 	return 0, nil
 }
-func (s *stubLedger) QueryCostTimeseries(_ context.Context, _ string, _, _ time.Time) ([]ledger.TimeseriesPoint, error) {
+func (s *stubLedger) QueryCostTimeseries(_ context.Context, _ string, _, _ time.Time, _ string) ([]ledger.TimeseriesPoint, error) {
 	return s.timeseries, nil
 }
 func (s *stubLedger) Close() error { return nil }
@@ -117,6 +117,66 @@ func TestHandleCosts(t *testing.T) {
 	}
 	if len(entries) != 1 {
 		t.Errorf("expected 1 entry, got %d", len(entries))
+	}
+}
+
+func TestHandleCostsWithTenant(t *testing.T) {
+	store := &stubLedger{
+		costs: []ledger.CostEntry{
+			{Model: "gpt-4o-mini", Requests: 3, TotalCostUSD: 0.15},
+		},
+	}
+	h := NewHandler(store, nil)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	req := httptest.NewRequest("GET", "/api/dashboard/costs?group_by=model&tenant=alpha", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+}
+
+func TestHandleSummaryWithTenant(t *testing.T) {
+	store := &stubLedger{
+		costs: []ledger.CostEntry{
+			{Model: "gpt-4o-mini", Requests: 5, TotalCostUSD: 0.25},
+		},
+	}
+	h := NewHandler(store, nil)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	req := httptest.NewRequest("GET", "/api/dashboard/summary?tenant=beta", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+}
+
+func TestHandleTimeseriesWithTenant(t *testing.T) {
+	store := &stubLedger{
+		timeseries: []ledger.TimeseriesPoint{
+			{Timestamp: time.Now(), CostUSD: 0.10, Requests: 2},
+		},
+	}
+	h := NewHandler(store, nil)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	req := httptest.NewRequest("GET", "/api/dashboard/timeseries?tenant=gamma", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
 	}
 }
 

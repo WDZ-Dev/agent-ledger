@@ -36,6 +36,7 @@ Thumbs.db
 # Build
 dist/
 build/output/
+/agentledger
 
 # Node (dashboard)
 web/node_modules/

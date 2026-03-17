@@ -22,8 +22,8 @@ type Ledger interface {
 	GetTotalSpendByTenant(ctx context.Context, tenantID string, since, until time.Time) (float64, error)
 
 	// QueryCostTimeseries returns cost and request counts bucketed by time interval.
-	// interval should be "hour" or "day".
-	QueryCostTimeseries(ctx context.Context, interval string, since, until time.Time) ([]TimeseriesPoint, error)
+	// interval should be "hour" or "day". tenantID is optional (empty = all tenants).
+	QueryCostTimeseries(ctx context.Context, interval string, since, until time.Time, tenantID string) ([]TimeseriesPoint, error)
 
 	// Close releases any held resources.
 	Close() error

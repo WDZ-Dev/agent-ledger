@@ -30,7 +30,7 @@ func (c *countingLedger) GetTotalSpendByTenant(_ context.Context, _ string, _, _
 	return 0, nil
 }
 
-func (c *countingLedger) QueryCostTimeseries(_ context.Context, _ string, _, _ time.Time) ([]TimeseriesPoint, error) {
+func (c *countingLedger) QueryCostTimeseries(_ context.Context, _ string, _, _ time.Time, _ string) ([]TimeseriesPoint, error) {
 	return nil, nil
 }
 
@@ -53,7 +53,7 @@ func (f *failingLedger) GetTotalSpendByTenant(_ context.Context, _ string, _, _ 
 	return 0, nil
 }
 
-func (f *failingLedger) QueryCostTimeseries(_ context.Context, _ string, _, _ time.Time) ([]TimeseriesPoint, error) {
+func (f *failingLedger) QueryCostTimeseries(_ context.Context, _ string, _, _ time.Time, _ string) ([]TimeseriesPoint, error) {
 	return nil, nil
 }
 

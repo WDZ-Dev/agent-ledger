@@ -31,30 +31,38 @@ func costsCmd() *cobra.Command {
 		configPath string
 		last       string
 		groupBy    string
+		tenant     string
 	)
 
 	cmd := &cobra.Command{
 		Use:   "costs",
 		Short: "Show cost report",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			return runCosts(configPath, last, groupBy)
+			return runCosts(configPath, last, groupBy, tenant)
 		},
 	}
 
 	cmd.Flags().StringVarP(&configPath, "config", "c", "", "path to config file")
 	cmd.Flags().StringVar(&last, "last", "24h", "time window (e.g., 1h, 24h, 7d)")
 	cmd.Flags().StringVar(&groupBy, "by", "model", "group by: model, provider, key, agent, session")
+	cmd.Flags().StringVar(&tenant, "tenant", "", "filter by tenant ID")
 
 	return cmd
 }
 
-func runCosts(configPath, last, groupBy string) error {
+func runCosts(configPath, last, groupBy, tenant string) error {
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return err
 	}
 
-	store, err := ledger.NewSQLite(cfg.Storage.DSN)
+	var store ledger.Ledger
+	switch cfg.Storage.Driver {
+	case "postgres":
+		store, err = ledger.NewPostgres(cfg.Storage.DSN, cfg.Storage.MaxOpenConns, cfg.Storage.MaxIdleConns)
+	default:
+		store, err = ledger.NewSQLite(cfg.Storage.DSN)
+	}
 	if err != nil {
 		return err
 	}
@@ -67,9 +75,10 @@ func runCosts(configPath, last, groupBy string) error {
 
 	now := time.Now()
 	filter := ledger.CostFilter{
-		Since:   now.Add(-window),
-		Until:   now,
-		GroupBy: groupBy,
+		Since:    now.Add(-window),
+		Until:    now,
+		GroupBy:  groupBy,
+		TenantID: tenant,
 	}
 
 	entries, err := store.QueryCosts(context.Background(), filter)

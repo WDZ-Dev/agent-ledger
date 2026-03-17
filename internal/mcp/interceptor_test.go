@@ -38,7 +38,7 @@ func (r *recordingLedger) GetTotalSpendByTenant(_ context.Context, _ string, _, 
 	return 0, nil
 }
 
-func (r *recordingLedger) QueryCostTimeseries(_ context.Context, _ string, _, _ time.Time) ([]ledger.TimeseriesPoint, error) {
+func (r *recordingLedger) QueryCostTimeseries(_ context.Context, _ string, _, _ time.Time, _ string) ([]ledger.TimeseriesPoint, error) {
 	return nil, nil
 }
 

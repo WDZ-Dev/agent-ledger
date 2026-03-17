@@ -31,7 +31,7 @@ func (s *stubLedger) GetTotalSpend(_ context.Context, _ string, since, _ time.Ti
 func (s *stubLedger) GetTotalSpendByTenant(_ context.Context, _ string, _, _ time.Time) (float64, error) {
 	return 0, nil
 }
-func (s *stubLedger) QueryCostTimeseries(_ context.Context, _ string, _, _ time.Time) ([]ledger.TimeseriesPoint, error) {
+func (s *stubLedger) QueryCostTimeseries(_ context.Context, _ string, _, _ time.Time, _ string) ([]ledger.TimeseriesPoint, error) {
 	return nil, nil
 }
 func (s *stubLedger) Close() error { return nil }

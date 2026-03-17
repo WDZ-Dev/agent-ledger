@@ -127,10 +127,17 @@ func (p *Postgres) QueryCosts(ctx context.Context, filter CostFilter) ([]CostEnt
 	return entries, rows.Err()
 }
 
-func (p *Postgres) QueryCostTimeseries(ctx context.Context, interval string, since, until time.Time) ([]TimeseriesPoint, error) {
+func (p *Postgres) QueryCostTimeseries(ctx context.Context, interval string, since, until time.Time, tenantID string) ([]TimeseriesPoint, error) {
 	bucket := "date_trunc('hour', timestamp)"
 	if interval == "day" {
 		bucket = "date_trunc('day', timestamp)"
+	}
+
+	where := "timestamp >= $1 AND timestamp <= $2"
+	args := []any{since.UTC(), until.UTC()}
+	if tenantID != "" {
+		args = append(args, tenantID)
+		where += fmt.Sprintf(" AND tenant_id = $%d", len(args))
 	}
 
 	q := fmt.Sprintf(`SELECT
@@ -138,11 +145,11 @@ func (p *Postgres) QueryCostTimeseries(ctx context.Context, interval string, sin
 		COALESCE(SUM(cost_usd), 0),
 		COUNT(*)
 	FROM usage_records
-	WHERE timestamp >= $1 AND timestamp <= $2
+	WHERE %s
 	GROUP BY bucket
-	ORDER BY bucket ASC`, bucket)
+	ORDER BY bucket ASC`, bucket, where)
 
-	rows, err := p.db.QueryContext(ctx, q, since.UTC(), until.UTC())
+	rows, err := p.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("querying cost timeseries: %w", err)
 	}

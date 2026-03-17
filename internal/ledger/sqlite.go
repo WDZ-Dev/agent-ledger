@@ -129,7 +129,7 @@ func (s *SQLite) QueryCosts(ctx context.Context, filter CostFilter) ([]CostEntry
 	return entries, rows.Err()
 }
 
-func (s *SQLite) QueryCostTimeseries(ctx context.Context, interval string, since, until time.Time) ([]TimeseriesPoint, error) {
+func (s *SQLite) QueryCostTimeseries(ctx context.Context, interval string, since, until time.Time, tenantID string) ([]TimeseriesPoint, error) {
 	// Go's time.Time stores as "2006-01-02 15:04:05.999999 +0000 UTC" in SQLite,
 	// but strftime only parses ISO8601. Use substr to extract the datetime portion.
 	bucket := "strftime('%Y-%m-%d %H:00:00', substr(timestamp, 1, 19))"
@@ -137,16 +137,23 @@ func (s *SQLite) QueryCostTimeseries(ctx context.Context, interval string, since
 		bucket = "strftime('%Y-%m-%d 00:00:00', substr(timestamp, 1, 19))"
 	}
 
+	where := "timestamp >= ? AND timestamp <= ?"
+	args := []any{since.UTC(), until.UTC()}
+	if tenantID != "" {
+		where += " AND tenant_id = ?"
+		args = append(args, tenantID)
+	}
+
 	q := fmt.Sprintf(`SELECT
 		%s as bucket,
 		COALESCE(SUM(cost_usd), 0),
 		COUNT(*)
 	FROM usage_records
-	WHERE timestamp >= ? AND timestamp <= ?
+	WHERE %s
 	GROUP BY bucket
-	ORDER BY bucket ASC`, bucket)
+	ORDER BY bucket ASC`, bucket, where)
 
-	rows, err := s.db.QueryContext(ctx, q, since.UTC(), until.UTC())
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("querying cost timeseries: %w", err)
 	}
