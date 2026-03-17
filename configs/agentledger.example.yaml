@@ -11,9 +11,41 @@ providers:
     upstream: "https://api.anthropic.com"
     enabled: true
 
+  # Additional providers — route via path prefix (e.g., /groq/v1/chat/completions)
+  # extra:
+  #   groq:
+  #     type: "openai"                               # OpenAI-compatible API
+  #     upstream: "https://api.groq.com/openai"
+  #     path_prefix: "/groq"
+  #     enabled: true
+  #   mistral:
+  #     type: "openai"
+  #     upstream: "https://api.mistral.ai"
+  #     path_prefix: "/mistral"
+  #     enabled: true
+  #   deepseek:
+  #     type: "openai"
+  #     upstream: "https://api.deepseek.com"
+  #     path_prefix: "/deepseek"
+  #     enabled: true
+  #   gemini:
+  #     type: "gemini"                               # Custom Gemini parser
+  #     upstream: "https://generativelanguage.googleapis.com"
+  #     path_prefix: "/gemini"
+  #     enabled: true
+  #   cohere:
+  #     type: "cohere"                               # Custom Cohere parser
+  #     upstream: "https://api.cohere.com"
+  #     path_prefix: "/cohere"
+  #     enabled: true
+
 storage:
-  driver: "sqlite"
-  dsn: "data/agentledger.db"
+  driver: "sqlite"                  # "sqlite" or "postgres"
+  dsn: "data/agentledger.db"        # SQLite path or Postgres connection string
+  # max_open_conns: 25              # Postgres only
+  # max_idle_conns: 5               # Postgres only
+  # Example Postgres DSN:
+  # dsn: "postgres://user:pass@localhost:5432/agentledger?sslmode=disable"
 
 log:
   level: "info"    # debug, info, warn, error
@@ -54,6 +86,39 @@ recording:
 # Dashboard (enabled by default)
 # dashboard:
 #   enabled: true               # set to false to disable web UI and API
+
+# Multi-tenancy (optional — omit to disable)
+# tenants:
+#   enabled: true
+#   key_mappings:
+#     - api_key_pattern: "sk-proj-team-alpha-*"
+#       tenant_id: "alpha"
+#     - api_key_pattern: "sk-proj-team-beta-*"
+#       tenant_id: "beta"
+
+# Alerting (optional — omit to disable)
+# alerts:
+#   slack:
+#     webhook_url: "https://hooks.slack.com/services/T00/B00/xxx"
+#   webhooks:
+#     - url: "https://api.example.com/alerts"
+#       headers:
+#         Authorization: "Bearer token"
+#   cooldown_mins: 5                       # deduplication window per alert
+
+# Rate limiting (optional — omit to disable)
+# rate_limits:
+#   default:
+#     requests_per_minute: 60
+#     requests_per_hour: 1000
+#   rules:
+#     - api_key_pattern: "sk-proj-dev-*"
+#       requests_per_minute: 10
+
+# Admin API (optional — omit to disable)
+# admin:
+#   enabled: true
+#   token: "your-secret-admin-token"       # Bearer token for auth
 
 # MCP (Model Context Protocol) tool call metering (optional — omit to disable)
 # mcp:

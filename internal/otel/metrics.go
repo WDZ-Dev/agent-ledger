@@ -15,6 +15,7 @@ type Metrics struct {
 	requestDurationMS metric.Float64Histogram
 	activeSessions    metric.Int64UpDownCounter
 	alertsTotal       metric.Int64Counter
+	rateLimitedTotal  metric.Int64Counter
 }
 
 // NewMetrics registers all OTel instruments on the given meter.
@@ -56,6 +57,12 @@ func NewMetrics(m metric.Meter) (*Metrics, error) {
 		return nil, err
 	}
 
+	rateLimitedTotal, err := m.Int64Counter("agentledger_rate_limited_total",
+		metric.WithDescription("Total rate-limited requests"))
+	if err != nil {
+		return nil, err
+	}
+
 	return &Metrics{
 		requestTotal:      requestTotal,
 		tokensTotal:       tokensTotal,
@@ -63,6 +70,7 @@ func NewMetrics(m metric.Meter) (*Metrics, error) {
 		requestDurationMS: requestDurationMS,
 		activeSessions:    activeSessions,
 		alertsTotal:       alertsTotal,
+		rateLimitedTotal:  rateLimitedTotal,
 	}, nil
 }
 
@@ -106,6 +114,13 @@ func (m *Metrics) SessionStarted() {
 // SessionEnded decrements the active sessions gauge.
 func (m *Metrics) SessionEnded() {
 	m.activeSessions.Add(context.Background(), -1)
+}
+
+// RecordRateLimited increments the rate limited counter.
+func (m *Metrics) RecordRateLimited(apiKeyHash string) {
+	m.rateLimitedTotal.Add(context.Background(), 1, metric.WithAttributes(
+		attribute.String("api_key_hash", apiKeyHash),
+	))
 }
 
 // RecordAlert increments the alert counter for the given type.

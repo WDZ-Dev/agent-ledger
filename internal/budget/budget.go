@@ -43,6 +43,11 @@ type Config struct {
 	Rules   []Rule `mapstructure:"rules"`
 }
 
+// AlertNotifier is an optional interface for sending budget alerts.
+type AlertNotifier interface {
+	Notify(ctx context.Context, alert interface{ GetType() string }) error
+}
+
 // Manager enforces budget limits by checking spend against configured rules.
 type Manager struct {
 	ledger   ledger.Ledger
@@ -50,6 +55,8 @@ type Manager struct {
 	cache    sync.Map // apiKeyHash -> *spendEntry
 	cacheTTL time.Duration
 	logger   *slog.Logger
+	onWarn   func(ctx context.Context, apiKeyHash string, result Result)
+	onBlock  func(ctx context.Context, apiKeyHash string, result Result)
 }
 
 type spendEntry struct {
@@ -68,6 +75,23 @@ func NewManager(l ledger.Ledger, cfg Config, logger *slog.Logger) *Manager {
 		cacheTTL: defaultCacheTTL,
 		logger:   logger,
 	}
+}
+
+// SetCallbacks configures alert callbacks for budget events.
+func (m *Manager) SetCallbacks(
+	onWarn func(ctx context.Context, apiKeyHash string, result Result),
+	onBlock func(ctx context.Context, apiKeyHash string, result Result),
+) {
+	m.onWarn = onWarn
+	m.onBlock = onBlock
+}
+
+// UpdateRules replaces the per-key rules at runtime (hot-reload from admin API).
+// The default rule is not changed.
+func (m *Manager) UpdateRules(rules []Rule) {
+	m.config.Rules = rules
+	// Invalidate cache so new rules take effect immediately.
+	m.cache = sync.Map{}
 }
 
 // Enabled returns true if any budget limits are configured.
@@ -103,9 +127,15 @@ func (m *Manager) Check(ctx context.Context, rawKey, apiKeyHash string) Result {
 	if exceeded {
 		if rule.Action == "block" {
 			result.Decision = Block
+			if m.onBlock != nil {
+				m.onBlock(ctx, apiKeyHash, result)
+			}
 			return result
 		}
 		result.Decision = Warn
+		if m.onWarn != nil {
+			m.onWarn(ctx, apiKeyHash, result)
+		}
 		return result
 	}
 
@@ -117,6 +147,10 @@ func (m *Manager) Check(ctx context.Context, rawKey, apiKeyHash string) Result {
 		if rule.MonthlyLimitUSD > 0 && monthly >= rule.MonthlyLimitUSD*rule.SoftLimitPct {
 			result.Decision = Warn
 		}
+	}
+
+	if result.Decision == Warn && m.onWarn != nil {
+		m.onWarn(ctx, apiKeyHash, result)
 	}
 
 	return result

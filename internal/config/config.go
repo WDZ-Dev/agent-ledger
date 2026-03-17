@@ -9,34 +9,43 @@ import (
 
 // Config holds all application configuration.
 type Config struct {
-	Listen         string          `mapstructure:"listen"`
-	Providers      ProvidersConfig `mapstructure:"providers"`
-	Storage        StorageConfig   `mapstructure:"storage"`
-	Log            LogConfig       `mapstructure:"log"`
-	Recording      RecordingConfig `mapstructure:"recording"`
-	Budgets        BudgetsConfig   `mapstructure:"budgets"`
-	CircuitBreaker CBConfig        `mapstructure:"circuit_breaker"`
-	Agent          AgentConfig     `mapstructure:"agent"`
-	Dashboard      DashboardConfig `mapstructure:"dashboard"`
-	MCP            MCPConfig       `mapstructure:"mcp"`
+	Listen         string           `mapstructure:"listen"`
+	Providers      ProvidersConfig  `mapstructure:"providers"`
+	Storage        StorageConfig    `mapstructure:"storage"`
+	Log            LogConfig        `mapstructure:"log"`
+	Recording      RecordingConfig  `mapstructure:"recording"`
+	Budgets        BudgetsConfig    `mapstructure:"budgets"`
+	CircuitBreaker CBConfig         `mapstructure:"circuit_breaker"`
+	Agent          AgentConfig      `mapstructure:"agent"`
+	Dashboard      DashboardConfig  `mapstructure:"dashboard"`
+	Tenants        TenantsConfig    `mapstructure:"tenants"`
+	Alerts         AlertsConfig     `mapstructure:"alerts"`
+	RateLimits     RateLimitsConfig `mapstructure:"rate_limits"`
+	Admin          AdminConfig      `mapstructure:"admin"`
+	MCP            MCPConfig        `mapstructure:"mcp"`
 }
 
 // ProvidersConfig holds per-provider settings.
 type ProvidersConfig struct {
-	OpenAI    ProviderConfig `mapstructure:"openai"`
-	Anthropic ProviderConfig `mapstructure:"anthropic"`
+	OpenAI    ProviderConfig            `mapstructure:"openai"`
+	Anthropic ProviderConfig            `mapstructure:"anthropic"`
+	Extra     map[string]ProviderConfig `mapstructure:"extra"`
 }
 
 // ProviderConfig holds settings for a single upstream provider.
 type ProviderConfig struct {
-	Upstream string `mapstructure:"upstream"`
-	Enabled  bool   `mapstructure:"enabled"`
+	Upstream   string `mapstructure:"upstream"`
+	Enabled    bool   `mapstructure:"enabled"`
+	Type       string `mapstructure:"type"`        // provider type: "openai", "anthropic", "gemini", "cohere"
+	PathPrefix string `mapstructure:"path_prefix"` // URL path prefix for routing (e.g., "/groq")
 }
 
 // StorageConfig holds database settings.
 type StorageConfig struct {
-	Driver string `mapstructure:"driver"`
-	DSN    string `mapstructure:"dsn"`
+	Driver       string `mapstructure:"driver"`
+	DSN          string `mapstructure:"dsn"`
+	MaxOpenConns int    `mapstructure:"max_open_conns"`
+	MaxIdleConns int    `mapstructure:"max_idle_conns"`
 }
 
 // LogConfig holds logging settings.
@@ -88,6 +97,55 @@ type DashboardConfig struct {
 	Enabled bool `mapstructure:"enabled"`
 }
 
+// TenantsConfig holds multi-tenancy settings.
+type TenantsConfig struct {
+	Enabled     bool               `mapstructure:"enabled"`
+	KeyMappings []TenantKeyMapping `mapstructure:"key_mappings"`
+}
+
+// TenantKeyMapping maps an API key glob pattern to a tenant ID.
+type TenantKeyMapping struct {
+	APIKeyPattern string `mapstructure:"api_key_pattern"`
+	TenantID      string `mapstructure:"tenant_id"`
+}
+
+// AlertsConfig holds alerting/notification settings.
+type AlertsConfig struct {
+	Slack       AlertSlackConfig     `mapstructure:"slack"`
+	Webhooks    []AlertWebhookConfig `mapstructure:"webhooks"`
+	CooldownMin int                  `mapstructure:"cooldown_mins"`
+}
+
+// AlertSlackConfig holds Slack webhook settings.
+type AlertSlackConfig struct {
+	WebhookURL string `mapstructure:"webhook_url"`
+}
+
+// AlertWebhookConfig holds generic webhook settings.
+type AlertWebhookConfig struct {
+	URL     string            `mapstructure:"url"`
+	Headers map[string]string `mapstructure:"headers"`
+}
+
+// RateLimitsConfig holds request rate limiting settings.
+type RateLimitsConfig struct {
+	Default RateLimitRule   `mapstructure:"default"`
+	Rules   []RateLimitRule `mapstructure:"rules"`
+}
+
+// RateLimitRule defines rate limits for a set of API keys.
+type RateLimitRule struct {
+	APIKeyPattern     string `mapstructure:"api_key_pattern"`
+	RequestsPerMinute int    `mapstructure:"requests_per_minute"`
+	RequestsPerHour   int    `mapstructure:"requests_per_hour"`
+}
+
+// AdminConfig holds admin API settings.
+type AdminConfig struct {
+	Enabled bool   `mapstructure:"enabled"`
+	Token   string `mapstructure:"token"` // Bearer token for admin API auth
+}
+
 // MCPConfig holds MCP (Model Context Protocol) integration settings.
 type MCPConfig struct {
 	Enabled  bool             `mapstructure:"enabled"`
@@ -113,6 +171,28 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("providers.openai.enabled", true)
 	v.SetDefault("providers.anthropic.upstream", "https://api.anthropic.com")
 	v.SetDefault("providers.anthropic.enabled", true)
+	// Extra providers — all disabled by default.
+	v.SetDefault("providers.extra.groq.type", "openai")
+	v.SetDefault("providers.extra.groq.upstream", "https://api.groq.com/openai")
+	v.SetDefault("providers.extra.groq.path_prefix", "/groq")
+	v.SetDefault("providers.extra.groq.enabled", false)
+	v.SetDefault("providers.extra.mistral.type", "openai")
+	v.SetDefault("providers.extra.mistral.upstream", "https://api.mistral.ai")
+	v.SetDefault("providers.extra.mistral.path_prefix", "/mistral")
+	v.SetDefault("providers.extra.mistral.enabled", false)
+	v.SetDefault("providers.extra.deepseek.type", "openai")
+	v.SetDefault("providers.extra.deepseek.upstream", "https://api.deepseek.com")
+	v.SetDefault("providers.extra.deepseek.path_prefix", "/deepseek")
+	v.SetDefault("providers.extra.deepseek.enabled", false)
+	v.SetDefault("providers.extra.gemini.type", "gemini")
+	v.SetDefault("providers.extra.gemini.upstream", "https://generativelanguage.googleapis.com")
+	v.SetDefault("providers.extra.gemini.path_prefix", "/gemini")
+	v.SetDefault("providers.extra.gemini.enabled", false)
+	v.SetDefault("providers.extra.cohere.type", "cohere")
+	v.SetDefault("providers.extra.cohere.upstream", "https://api.cohere.com")
+	v.SetDefault("providers.extra.cohere.path_prefix", "/cohere")
+	v.SetDefault("providers.extra.cohere.enabled", false)
+
 	v.SetDefault("storage.driver", "sqlite")
 	v.SetDefault("storage.dsn", "data/agentledger.db")
 	v.SetDefault("log.level", "info")

@@ -20,13 +20,15 @@ type UsageRecord struct {
 	AgentID      string
 	SessionID    string
 	UserID       string
+	TenantID     string
 }
 
 // CostFilter specifies which records to include in a cost query.
 type CostFilter struct {
-	Since   time.Time
-	Until   time.Time
-	GroupBy string // "model", "provider", "key", "agent", "session"
+	Since    time.Time
+	Until    time.Time
+	GroupBy  string // "model", "provider", "key", "agent", "session"
+	TenantID string // optional tenant filter (empty = all tenants)
 }
 
 // TimeseriesPoint represents a single data point in a cost timeseries.

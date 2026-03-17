@@ -15,8 +15,8 @@ import (
 	"github.com/WDZ-Dev/agent-ledger/internal/agent"
 )
 
-//go:embed migrations/*.sql
-var embedMigrations embed.FS
+//go:embed migrations/sqlite/*.sql
+var embedSQLiteMigrations embed.FS
 
 // SQLite implements the Ledger interface using SQLite (CGO-free via modernc.org).
 type SQLite struct {
@@ -42,7 +42,7 @@ func NewSQLite(dsn string) (*SQLite, error) {
 	// SQLite handles concurrency best with a single writer.
 	db.SetMaxOpenConns(1)
 
-	if err := runMigrations(db); err != nil {
+	if err := runSQLiteMigrations(db); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -50,12 +50,12 @@ func NewSQLite(dsn string) (*SQLite, error) {
 	return &SQLite{db: db}, nil
 }
 
-func runMigrations(db *sql.DB) error {
-	goose.SetBaseFS(embedMigrations)
+func runSQLiteMigrations(db *sql.DB) error {
+	goose.SetBaseFS(embedSQLiteMigrations)
 	if err := goose.SetDialect("sqlite3"); err != nil {
 		return fmt.Errorf("setting goose dialect: %w", err)
 	}
-	if err := goose.Up(db, "migrations"); err != nil {
+	if err := goose.Up(db, "migrations/sqlite"); err != nil {
 		return fmt.Errorf("running migrations: %w", err)
 	}
 	return nil
@@ -65,13 +65,14 @@ func (s *SQLite) RecordUsage(ctx context.Context, record *UsageRecord) error {
 	const q = `INSERT INTO usage_records (
 		id, timestamp, provider, model, api_key_hash,
 		input_tokens, output_tokens, total_tokens, cost_usd, estimated,
-		duration_ms, status_code, path, agent_id, session_id, user_id
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		duration_ms, status_code, path, agent_id, session_id, user_id, tenant_id
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err := s.db.ExecContext(ctx, q,
 		record.ID, record.Timestamp.UTC(), record.Provider, record.Model, record.APIKeyHash,
 		record.InputTokens, record.OutputTokens, record.TotalTokens, record.CostUSD, record.Estimated,
 		record.DurationMS, record.StatusCode, record.Path, record.AgentID, record.SessionID, record.UserID,
+		record.TenantID,
 	)
 	if err != nil {
 		return fmt.Errorf("inserting usage record: %w", err)
@@ -92,6 +93,13 @@ func (s *SQLite) QueryCosts(ctx context.Context, filter CostFilter) ([]CostEntry
 		groupCol = "session_id"
 	}
 
+	where := "timestamp >= ? AND timestamp <= ?"
+	args := []any{filter.Since.UTC(), filter.Until.UTC()}
+	if filter.TenantID != "" {
+		where += " AND tenant_id = ?"
+		args = append(args, filter.TenantID)
+	}
+
 	q := fmt.Sprintf(`SELECT
 		provider, model, api_key_hash, agent_id, session_id,
 		COUNT(*) as requests,
@@ -99,11 +107,11 @@ func (s *SQLite) QueryCosts(ctx context.Context, filter CostFilter) ([]CostEntry
 		COALESCE(SUM(output_tokens), 0),
 		COALESCE(SUM(cost_usd), 0)
 	FROM usage_records
-	WHERE timestamp >= ? AND timestamp <= ?
+	WHERE %s
 	GROUP BY %s
-	ORDER BY SUM(cost_usd) DESC`, groupCol)
+	ORDER BY SUM(cost_usd) DESC`, where, groupCol)
 
-	rows, err := s.db.QueryContext(ctx, q, filter.Since.UTC(), filter.Until.UTC())
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("querying costs: %w", err)
 	}
@@ -164,6 +172,17 @@ func (s *SQLite) GetTotalSpend(ctx context.Context, apiKeyHash string, since, un
 	var total float64
 	if err := s.db.QueryRowContext(ctx, q, apiKeyHash, since.UTC(), until.UTC()).Scan(&total); err != nil {
 		return 0, fmt.Errorf("querying total spend: %w", err)
+	}
+	return total, nil
+}
+
+func (s *SQLite) GetTotalSpendByTenant(ctx context.Context, tenantID string, since, until time.Time) (float64, error) {
+	const q = `SELECT COALESCE(SUM(cost_usd), 0) FROM usage_records
+		WHERE tenant_id = ? AND timestamp >= ? AND timestamp <= ?`
+
+	var total float64
+	if err := s.db.QueryRowContext(ctx, q, tenantID, since.UTC(), until.UTC()).Scan(&total); err != nil {
+		return 0, fmt.Errorf("querying tenant spend: %w", err)
 	}
 	return total, nil
 }
@@ -248,6 +267,12 @@ func (s *SQLite) ListActiveSessions(ctx context.Context) ([]agent.Session, error
 		sessions = append(sessions, sess)
 	}
 	return sessions, rows.Err()
+}
+
+// DB returns the underlying database connection for use by other packages
+// (e.g., admin config store).
+func (s *SQLite) DB() *sql.DB {
+	return s.db
 }
 
 func (s *SQLite) Close() error {

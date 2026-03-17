@@ -55,14 +55,26 @@ config:
       upstream: "https://api.anthropic.com"
       enabled: true
   storage:
-    driver: "sqlite"
-    dsn: "/data/agentledger.db"
+    driver: "sqlite"                     # "sqlite" or "postgres"
+    dsn: "/data/agentledger.db"          # file path for sqlite, DSN for postgres
+    # max_open_conns: 25                 # postgres only
+    # max_idle_conns: 5                  # postgres only
   log:
     level: "info"
     format: "json"
   recording:
     buffer_size: 10000
     workers: 4
+
+# External Postgres — uncomment to use instead of SQLite
+# postgres:
+#   enabled: false
+#   host: "postgres.default.svc.cluster.local"
+#   port: 5432
+#   database: "agentledger"
+#   username: "agentledger"
+#   password: ""
+#   sslmode: "disable"
 
 nodeSelector: {}
 tolerations: []

@@ -34,6 +34,9 @@ func (r *recordingLedger) QueryCosts(_ context.Context, _ ledger.CostFilter) ([]
 func (r *recordingLedger) GetTotalSpend(_ context.Context, _ string, _, _ time.Time) (float64, error) {
 	return 0, nil
 }
+func (r *recordingLedger) GetTotalSpendByTenant(_ context.Context, _ string, _, _ time.Time) (float64, error) {
+	return 0, nil
+}
 
 func (r *recordingLedger) QueryCostTimeseries(_ context.Context, _ string, _, _ time.Time) ([]ledger.TimeseriesPoint, error) {
 	return nil, nil

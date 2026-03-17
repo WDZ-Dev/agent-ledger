@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -12,7 +13,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/WDZ-Dev/agent-ledger/internal/admin"
 	"github.com/WDZ-Dev/agent-ledger/internal/agent"
+	"github.com/WDZ-Dev/agent-ledger/internal/alert"
 	"github.com/WDZ-Dev/agent-ledger/internal/budget"
 	"github.com/WDZ-Dev/agent-ledger/internal/config"
 	"github.com/WDZ-Dev/agent-ledger/internal/dashboard"
@@ -22,6 +25,8 @@ import (
 	appmetrics "github.com/WDZ-Dev/agent-ledger/internal/otel"
 	"github.com/WDZ-Dev/agent-ledger/internal/provider"
 	"github.com/WDZ-Dev/agent-ledger/internal/proxy"
+	"github.com/WDZ-Dev/agent-ledger/internal/ratelimit"
+	"github.com/WDZ-Dev/agent-ledger/internal/tenant"
 )
 
 func serveCmd() *cobra.Command {
@@ -48,10 +53,28 @@ func runServe(configPath string) error {
 
 	logger := newLogger(cfg.Log)
 
-	// Storage
-	store, err := ledger.NewSQLite(cfg.Storage.DSN)
-	if err != nil {
-		return err
+	// Storage — switch on driver type.
+	// Both backends implement Ledger + agent.SessionStore + DB().
+	var store interface {
+		ledger.Ledger
+		agent.SessionStore
+		DB() *sql.DB
+	}
+	switch cfg.Storage.Driver {
+	case "postgres":
+		pgStore, pgErr := ledger.NewPostgres(cfg.Storage.DSN, cfg.Storage.MaxOpenConns, cfg.Storage.MaxIdleConns)
+		if pgErr != nil {
+			return pgErr
+		}
+		store = pgStore
+		logger.Info("storage backend: postgres")
+	default:
+		sqliteStore, sqliteErr := ledger.NewSQLite(cfg.Storage.DSN)
+		if sqliteErr != nil {
+			return sqliteErr
+		}
+		store = sqliteStore
+		logger.Info("storage backend: sqlite")
 	}
 	defer func() { _ = store.Close() }()
 
@@ -136,8 +159,125 @@ func runServe(configPath string) error {
 		)
 	}
 
+	// Alerting (optional).
+	var notifier alert.Notifier
+	{
+		var notifiers []alert.Notifier
+		if cfg.Alerts.Slack.WebhookURL != "" {
+			notifiers = append(notifiers, alert.NewSlackNotifier(cfg.Alerts.Slack.WebhookURL))
+			logger.Info("slack alerting enabled")
+		}
+		for _, wh := range cfg.Alerts.Webhooks {
+			notifiers = append(notifiers, alert.NewWebhookNotifier(wh.URL, wh.Headers))
+			logger.Info("webhook alerting enabled", "url", wh.URL)
+		}
+		if len(notifiers) > 0 {
+			cooldown := 5 * time.Minute
+			if cfg.Alerts.CooldownMin > 0 {
+				cooldown = time.Duration(cfg.Alerts.CooldownMin) * time.Minute
+			}
+			notifier = alert.NewRateLimitedNotifier(
+				alert.NewMultiNotifier(notifiers...),
+				cooldown,
+			)
+		}
+	}
+
+	// Wire alerting into budget manager.
+	if notifier != nil && budgetMgr.Enabled() {
+		budgetMgr.SetCallbacks(
+			func(ctx context.Context, apiKeyHash string, result budget.Result) {
+				_ = notifier.Notify(ctx, alert.Alert{
+					Type:     "budget_warning",
+					Severity: "warning",
+					Message:  fmt.Sprintf("API key %s approaching budget limit", apiKeyHash),
+					Details: map[string]string{
+						"api_key_hash": apiKeyHash,
+						"daily_spent":  fmt.Sprintf("%.2f", result.DailySpent),
+						"daily_limit":  fmt.Sprintf("%.2f", result.DailyLimit),
+					},
+				})
+			},
+			func(ctx context.Context, apiKeyHash string, result budget.Result) {
+				_ = notifier.Notify(ctx, alert.Alert{
+					Type:     "budget_exceeded",
+					Severity: "critical",
+					Message:  fmt.Sprintf("API key %s exceeded budget limit", apiKeyHash),
+					Details: map[string]string{
+						"api_key_hash": apiKeyHash,
+						"daily_spent":  fmt.Sprintf("%.2f", result.DailySpent),
+						"daily_limit":  fmt.Sprintf("%.2f", result.DailyLimit),
+					},
+				})
+			},
+		)
+	}
+
+	// Wire alerting into agent tracker.
+	if notifier != nil && tracker.Enabled() {
+		tracker.SetAlertNotifier(func(ctx context.Context, agentAlert agent.Alert) {
+			severity := "warning"
+			if agentAlert.Type == "ghost_detected" {
+				severity = "critical"
+			}
+			_ = notifier.Notify(ctx, alert.Alert{
+				Type:     agentAlert.Type,
+				Severity: severity,
+				Message:  agentAlert.Message,
+				Details: map[string]string{
+					"session_id": agentAlert.SessionID,
+					"agent_id":   agentAlert.AgentID,
+				},
+			})
+		})
+	}
+
+	// Tenant resolver (optional).
+	var tenantResolver tenant.Resolver
+	if cfg.Tenants.Enabled {
+		var resolvers []tenant.Resolver
+		resolvers = append(resolvers, &tenant.HeaderResolver{})
+		if len(cfg.Tenants.KeyMappings) > 0 {
+			var mappings []tenant.KeyMapping
+			for _, km := range cfg.Tenants.KeyMappings {
+				mappings = append(mappings, tenant.KeyMapping{
+					APIKeyPattern: km.APIKeyPattern,
+					TenantID:      km.TenantID,
+				})
+			}
+			resolvers = append(resolvers, tenant.NewConfigResolver(mappings))
+		}
+		tenantResolver = tenant.NewChainResolver(resolvers...)
+		logger.Info("multi-tenancy enabled")
+	}
+
+	// Rate limiter (optional).
+	var limiter *ratelimit.Limiter
+	{
+		rlCfg := ratelimit.Config{
+			Default: ratelimit.Rule{
+				RequestsPerMinute: cfg.RateLimits.Default.RequestsPerMinute,
+				RequestsPerHour:   cfg.RateLimits.Default.RequestsPerHour,
+			},
+		}
+		for _, r := range cfg.RateLimits.Rules {
+			rlCfg.Rules = append(rlCfg.Rules, ratelimit.Rule{
+				APIKeyPattern:     r.APIKeyPattern,
+				RequestsPerMinute: r.RequestsPerMinute,
+				RequestsPerHour:   r.RequestsPerHour,
+			})
+		}
+		limiter = ratelimit.New(rlCfg)
+		if limiter.Enabled() {
+			logger.Info("rate limiting enabled",
+				"default_rpm", rlCfg.Default.RequestsPerMinute,
+				"default_rph", rlCfg.Default.RequestsPerHour,
+			)
+		}
+	}
+
 	// Proxy
-	p := proxy.New(reg, m, rec, budgetMgr, tracker, metrics, transport, logger)
+	p := proxy.New(reg, m, rec, budgetMgr, tracker, metrics, limiter, tenantResolver, transport, logger)
 
 	// HTTP routing:
 	//   /v1/*         → LLM proxy
@@ -149,6 +289,12 @@ func runServe(configPath string) error {
 	mux.Handle("/v1/", p)
 	mux.Handle("/health", p)
 	mux.Handle("/metrics", metricsHandler)
+
+	// Register dynamic provider path prefixes (e.g., /groq/, /gemini/).
+	for _, prefix := range reg.PathPrefixes() {
+		mux.Handle(prefix+"/", p)
+		logger.Info("registered provider route", "prefix", prefix)
+	}
 
 	// MCP HTTP proxy (optional).
 	if cfg.MCP.Enabled && cfg.MCP.Upstream != "" {
@@ -164,6 +310,14 @@ func runServe(configPath string) error {
 		mcpProxy := mcp.NewHTTPProxy(cfg.MCP.Upstream, mcpPricer, rec, logger)
 		mux.Handle("/mcp/", mcpProxy)
 		logger.Info("MCP HTTP proxy enabled", "upstream", cfg.MCP.Upstream)
+	}
+
+	// Admin API (optional).
+	if cfg.Admin.Enabled && cfg.Admin.Token != "" {
+		adminStore := admin.NewStore(store.DB())
+		adminHandler := admin.NewHandler(adminStore, store, budgetMgr, cfg.Admin.Token)
+		adminHandler.RegisterRoutes(mux)
+		logger.Info("admin API enabled")
 	}
 
 	if cfg.Dashboard.Enabled {

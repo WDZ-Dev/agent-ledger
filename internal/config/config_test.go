@@ -105,6 +105,60 @@ func TestLoadMissingExplicitPath(t *testing.T) {
 	}
 }
 
+func TestLoadExtraProviders(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "test.yaml")
+	content := []byte(`providers:
+  extra:
+    groq:
+      type: "openai"
+      upstream: "https://api.groq.com/openai"
+      path_prefix: "/groq"
+      enabled: true
+    gemini:
+      type: "gemini"
+      upstream: "https://generativelanguage.googleapis.com"
+      path_prefix: "/gemini"
+      enabled: true
+`)
+	if err := os.WriteFile(cfgFile, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(cfgFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(cfg.Providers.Extra) == 0 {
+		t.Fatal("expected extra providers")
+	}
+	groq, ok := cfg.Providers.Extra["groq"]
+	if !ok {
+		t.Fatal("expected groq in extra providers")
+	}
+	if groq.Type != "openai" {
+		t.Errorf("groq type = %q, want %q", groq.Type, "openai")
+	}
+	if !groq.Enabled {
+		t.Error("groq should be enabled")
+	}
+	if groq.PathPrefix != "/groq" {
+		t.Errorf("groq path_prefix = %q, want %q", groq.PathPrefix, "/groq")
+	}
+
+	gemini, ok := cfg.Providers.Extra["gemini"]
+	if !ok {
+		t.Fatal("expected gemini in extra providers")
+	}
+	if gemini.Type != "gemini" {
+		t.Errorf("gemini type = %q, want %q", gemini.Type, "gemini")
+	}
+	if !gemini.Enabled {
+		t.Error("gemini should be enabled")
+	}
+}
+
 func TestLoadAutoSearch(t *testing.T) {
 	// Create a config in a temp dir and cd there
 	dir := t.TempDir()

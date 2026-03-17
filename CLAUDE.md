@@ -6,7 +6,7 @@ A Go-based open-source reverse proxy that provides real-time cost attribution, b
 
 ## Quick Context
 
-- **What:** Transparent reverse proxy between AI agents and LLM APIs (OpenAI, Anthropic)
+- **What:** Transparent reverse proxy between AI agents and LLM APIs (OpenAI, Anthropic, Groq, Mistral, DeepSeek, Gemini, Cohere)
 - **How:** `export OPENAI_BASE_URL=http://localhost:8787/v1` — zero code changes
 - **Why:** No tool tracks per-agent-execution costs, detects loops, or meters MCP calls
 - **Language:** Go — single binary, zero runtime dependencies
@@ -24,11 +24,11 @@ A Go-based open-source reverse proxy that provides real-time cost attribution, b
 ## Architecture
 
 ```
-Agents → AgentLedger (Go proxy :8787) → LLM APIs (OpenAI, Anthropic)
+Agents → AgentLedger (Go proxy :8787) → LLM APIs (OpenAI, Anthropic, Groq, Mistral, DeepSeek, Gemini, Cohere)
+              ↓                              ↓
+         SQLite/Postgres ledger         Slack/Webhook alerts
               ↓
-         SQLite/Postgres ledger
-              ↓
-         Dashboard + Prometheus + CLI
+         Dashboard + Admin API + Prometheus + CLI
 ```
 
 ### Core Packages
@@ -37,14 +37,18 @@ Agents → AgentLedger (Go proxy :8787) → LLM APIs (OpenAI, Anthropic)
 |---------|---------|
 | `cmd/agentledger/` | CLI entrypoint (cobra): `serve`, `costs`, `version` |
 | `internal/proxy/` | Core reverse proxy (`httputil.ReverseProxy`), SSE streaming, middleware chain |
-| `internal/provider/` | Provider interface + OpenAI/Anthropic parsers, auto-detection from request |
+| `internal/provider/` | Provider interface + OpenAI/Anthropic/Gemini/Cohere parsers, OpenAI-compatible base type, path-prefix routing |
 | `internal/meter/` | Cost calculation engine, model pricing table, tiktoken-go fallback |
-| `internal/ledger/` | Storage interface, SQLite (modernc.org/sqlite, CGO-free) + Postgres impls |
+| `internal/ledger/` | Storage interface, SQLite (modernc.org/sqlite, CGO-free) + Postgres impls, multi-tenant queries |
 | `internal/budget/` | Budget enforcement middleware, circuit breaker |
 | `internal/agent/` | Agent session tracking, loop/ghost detection — THE key differentiator |
 | `internal/mcp/` | MCP call interception (stdio wrapper + SSE proxy) |
 | `internal/config/` | YAML config loading (viper) |
 | `internal/otel/` | OpenTelemetry metrics + Prometheus `/metrics` endpoint |
+| `internal/tenant/` | Multi-tenancy: header/config-based tenant resolution |
+| `internal/alert/` | Alerting: Slack + webhook notifiers with rate-limited deduplication |
+| `internal/ratelimit/` | Request rate limiting: sliding window counters per API key |
+| `internal/admin/` | Admin REST API: runtime budget rule CRUD, API key listing, config persistence |
 | `internal/dashboard/` | Embedded web dashboard (React/Preact via go:embed) |
 
 ### Key Design Principles
@@ -68,12 +72,18 @@ Headers are stripped before forwarding to upstream. Without headers, falls back 
 
 ## Implementation Phases
 
-1. **Core Proxy** (Week 1-2) — proxy + token counting + cost ledger + CLI
-2. **Budget Enforcement** (Week 3-4) — per-key budgets, circuit breaker, streaming-aware
-3. **Agent Attribution** (Week 5-6) — session tracking, loop detection, ghost detection
-4. **Observability** (Week 7-8) — OpenTelemetry, Prometheus, embedded web dashboard
-5. **MCP Integration** (Week 9-10) — stdio wrapper + SSE proxy for MCP tool cost metering
-6. **Polish & Launch** (Week 11-12) — Docker, GoReleaser, Helm, GitHub Action, docs
+1. **Core Proxy** — proxy + token counting + cost ledger + CLI
+2. **Budget Enforcement** — per-key budgets, circuit breaker, streaming-aware
+3. **Agent Attribution** — session tracking, loop detection, ghost detection
+4. **Observability** — OpenTelemetry, Prometheus, embedded web dashboard
+5. **MCP Integration** — stdio wrapper + SSE proxy for MCP tool cost metering
+6. **Polish & Launch** — Docker, GoReleaser, Helm, GitHub Action, docs
+7. **Multi-Provider** — Groq, Mistral, DeepSeek, Gemini, Cohere with OpenAI-compatible base + path-prefix routing
+8. **Postgres** — PostgreSQL storage backend with connection pooling
+9. **Multi-Tenancy** — tenant isolation via header/config-based resolution, tenant-scoped budgets
+10. **Alerting** — Slack + webhook notifications with rate-limited deduplication
+11. **Rate Limiting** — sliding window per-key request throttling + Homebrew tap
+12. **Admin API** — runtime budget rule CRUD, API key spend listing, config persistence
 
 ## Dependencies
 

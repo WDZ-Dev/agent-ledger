@@ -23,11 +23,22 @@ AgentLedger gives you:
 - **Dashboard** — embedded web UI for real-time cost visibility
 - **Observability** — OpenTelemetry metrics with Prometheus endpoint
 - **Circuit breaker** — automatic upstream failure protection
+- **Multi-provider** — OpenAI, Anthropic, Groq, Mistral, DeepSeek, Gemini, Cohere
+- **Multi-tenancy** — isolate costs by team/org with tenant-scoped budgets
+- **Alerting** — Slack and webhook notifications for budget warnings and anomalies
+- **Rate limiting** — per-key request throttling with sliding window counters
+- **Admin API** — runtime budget rule management without restarts
 - **Zero code changes** — works with any OpenAI/Anthropic SDK via base URL override
 
 ## Quick Start
 
 ### Install
+
+**Homebrew:**
+
+```bash
+brew install wdz-dev/tap/agentledger
+```
 
 **Binary download** — grab the latest release from [GitHub Releases](https://github.com/WDZ-Dev/agent-ledger/releases).
 
@@ -70,6 +81,17 @@ const openai = new OpenAI({ baseURL: 'http://localhost:8787/v1' });
 
 # Claude Code
 export ANTHROPIC_BASE_URL=http://localhost:8787
+
+# Groq, Mistral, DeepSeek — route via path prefix
+# curl http://localhost:8787/groq/v1/chat/completions
+# curl http://localhost:8787/mistral/v1/chat/completions
+# curl http://localhost:8787/deepseek/v1/chat/completions
+
+# Gemini
+# curl http://localhost:8787/gemini/v1beta/models/gemini-2.5-pro:generateContent
+
+# Cohere
+# curl http://localhost:8787/cohere/v2/chat
 ```
 
 ### Check your costs
@@ -102,23 +124,24 @@ cd deploy && docker compose up
 
 ```
 ┌─────────────┐       ┌──────────────────────┐       ┌──────────────┐
-│   Agents    │──────▶│    AgentLedger :8787  │──────▶│  OpenAI API  │
-│  (any SDK)  │       │                      │       │ Anthropic API│
-└─────────────┘       │  ┌────────────────┐  │       └──────────────┘
-                      │  │ Budget Check   │  │
-┌─────────────┐       │  │ Pre-flight Est │  │
-│ MCP Servers │◀─────▶│  │ Token Metering │  │
-│(stdio/HTTP) │       │  │ Agent Sessions │  │
-└─────────────┘       │  │ Cost Calc      │  │
+│   Agents    │──────▶│    AgentLedger :8787  │──────▶│  OpenAI      │
+│  (any SDK)  │       │                      │       │  Anthropic   │
+└─────────────┘       │  ┌────────────────┐  │       │  Groq        │
+                      │  │ Rate Limiting  │  │       │  Mistral     │
+┌─────────────┐       │  │ Budget Check   │  │       │  DeepSeek    │
+│ MCP Servers │◀─────▶│  │ Token Metering │  │       │  Gemini      │
+│(stdio/HTTP) │       │  │ Agent Sessions │  │       │  Cohere      │
+└─────────────┘       │  │ Cost Calc      │  │       └──────────────┘
                       │  │ Async Record   │  │
-                      │  └────────────────┘  │
-                      │          │           │
-                      │  ┌───────▼────────┐  │
-                      │  │ SQLite/Postgres │  │
+                      │  └────────────────┘  │       ┌──────────────┐
+                      │          │           │──────▶│  Slack       │
+                      │  ┌───────▼────────┐  │       │  Webhooks    │
+                      │  │ SQLite/Postgres │  │       └──────────────┘
                       │  └────────────────┘  │
                       │          │           │
                       │  ┌───────▼────────┐  │
                       │  │ Dashboard :8787 │  │
+                      │  │ Admin API      │  │
                       │  │ Prometheus      │  │
                       │  └────────────────┘  │
                       └──────────────────────┘
@@ -141,14 +164,19 @@ cd deploy && docker compose up
 
 Every request is metered with provider-reported token counts. When streaming responses don't include usage data, AgentLedger falls back to tiktoken estimation (flagged as `estimated: true`).
 
-**Supported models:**
+**Supported providers and models:**
 
-| Provider | Models |
-|----------|--------|
-| OpenAI | gpt-4.1, gpt-4.1-mini, gpt-4.1-nano, gpt-4o, gpt-4o-mini, o3, o3-mini, o4-mini, o1, o1-mini, gpt-4-turbo, gpt-4, gpt-3.5-turbo |
-| Anthropic | claude-opus-4, claude-sonnet-4, claude-haiku-4, claude-3.5-sonnet, claude-3.5-haiku, claude-3-opus, claude-3-sonnet, claude-3-haiku |
+| Provider | Routing | Models |
+|----------|---------|--------|
+| OpenAI | `/v1/` (default) | gpt-4.1, gpt-4.1-mini, gpt-4.1-nano, gpt-4o, gpt-4o-mini, o3, o3-mini, o4-mini, o1, o1-mini, gpt-4-turbo, gpt-4, gpt-3.5-turbo |
+| Anthropic | `/v1/messages` | claude-opus-4, claude-sonnet-4, claude-haiku-4, claude-3.5-sonnet, claude-3.5-haiku, claude-3-opus, claude-3-sonnet, claude-3-haiku |
+| Groq | `/groq/v1/` | llama-3.3-70b-versatile, llama-3.1-8b-instant, mixtral-8x7b-32768, gemma2-9b-it |
+| Mistral | `/mistral/v1/` | mistral-large-latest, mistral-small-latest, codestral-latest, open-mistral-nemo |
+| DeepSeek | `/deepseek/v1/` | deepseek-chat, deepseek-reasoner |
+| Gemini | `/gemini/` | gemini-2.5-pro, gemini-2.5-flash, gemini-2.0-flash, gemini-1.5-pro, gemini-1.5-flash |
+| Cohere | `/cohere/` | command-r-plus, command-r, command-light |
 
-Versioned model names (e.g., `gpt-4o-2024-11-20`) are matched via longest prefix.
+Groq, Mistral, and DeepSeek use the OpenAI-compatible API format. Gemini and Cohere have custom parsers. Versioned model names (e.g., `gpt-4o-2024-11-20`) are matched via longest prefix.
 
 ### Budget Enforcement
 
@@ -259,6 +287,79 @@ circuit_breaker:
   timeout_secs: 30
 ```
 
+### Multi-Tenancy
+
+Isolate costs, budgets, and dashboards by team or organization. Enable tenancy and map API keys to tenants:
+
+```yaml
+tenants:
+  enabled: true
+  key_mappings:
+    - api_key_pattern: "sk-proj-team-alpha-*"
+      tenant_id: "alpha"
+    - api_key_pattern: "sk-proj-team-beta-*"
+      tenant_id: "beta"
+```
+
+Or set the tenant per-request via header: `X-AgentLedger-Tenant: alpha`.
+
+All dashboard and cost endpoints accept an optional `?tenant=` filter.
+
+### Alerting
+
+Get notified when budgets are approaching limits or agents are misbehaving:
+
+```yaml
+alerts:
+  slack:
+    webhook_url: "https://hooks.slack.com/services/..."
+  webhooks:
+    - url: "https://api.example.com/alerts"
+      headers:
+        Authorization: "Bearer token"
+  cooldown_mins: 5   # deduplication window per alert
+```
+
+Alert types: `budget_warning`, `budget_exceeded`, `loop_detected`, `ghost_detected`.
+
+### Rate Limiting
+
+Throttle request volume per API key with sliding window counters:
+
+```yaml
+rate_limits:
+  default:
+    requests_per_minute: 60
+    requests_per_hour: 1000
+  rules:
+    - api_key_pattern: "sk-proj-dev-*"
+      requests_per_minute: 10
+```
+
+Returns `429 Too Many Requests` with a `Retry-After` header when exceeded.
+
+### Admin API
+
+Manage budget rules at runtime without restarting. Protected by Bearer token auth:
+
+```yaml
+admin:
+  enabled: true
+  token: "your-secret-admin-token"
+```
+
+Endpoints:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/admin/budgets/rules` | List budget rules |
+| POST | `/api/admin/budgets/rules` | Create a budget rule |
+| DELETE | `/api/admin/budgets/rules?pattern=...` | Delete a rule by pattern |
+| GET | `/api/admin/api-keys` | List API key hashes with monthly spend |
+| GET | `/api/admin/providers` | List provider status |
+
+Runtime rules take effect immediately and persist across restarts.
+
 ### API Key Security
 
 Raw API keys are never stored. AgentLedger creates a SHA-256 fingerprint from the first 8 and last 4 characters of the key. The full key passes through to the upstream provider untouched.
@@ -358,9 +459,15 @@ agent-ledger/
 │   │   └── streaming.go       SSE stream interception
 │   ├── provider/              LLM provider parsers
 │   │   ├── provider.go        Provider interface + API key handling
-│   │   ├── openai.go          OpenAI chat/completions/embeddings
+│   │   ├── openai_compat.go   OpenAI-compatible base (shared by Groq/Mistral/DeepSeek)
+│   │   ├── openai.go          OpenAI provider constructor
 │   │   ├── anthropic.go       Anthropic messages API
-│   │   └── registry.go        Auto-detect provider from request
+│   │   ├── gemini.go          Google Gemini custom parser
+│   │   ├── cohere.go          Cohere custom parser
+│   │   ├── groq.go            Groq (OpenAI-compatible)
+│   │   ├── mistral.go         Mistral (OpenAI-compatible)
+│   │   ├── deepseek.go        DeepSeek (OpenAI-compatible)
+│   │   └── registry.go        Auto-detect provider from request + path prefix routing
 │   ├── meter/                 Cost calculation
 │   │   ├── meter.go           Token-to-USD conversion
 │   │   ├── pricing.go         Model pricing table (20 models)
@@ -369,8 +476,11 @@ agent-ledger/
 │   │   ├── ledger.go          Ledger interface
 │   │   ├── models.go          UsageRecord, CostFilter, CostEntry
 │   │   ├── sqlite.go          SQLite impl (CGO-free)
+│   │   ├── postgres.go        PostgreSQL impl
 │   │   ├── recorder.go        Async buffered recording
 │   │   └── migrations/        Embedded SQL migrations (goose)
+│   │       ├── sqlite/        SQLite-specific migrations
+│   │       └── postgres/      PostgreSQL-specific migrations
 │   ├── budget/                Budget enforcement
 │   │   ├── budget.go          Per-key spend limits + caching
 │   │   └── circuit_breaker.go Transport wrapper for upstream failures
@@ -388,6 +498,18 @@ agent-ledger/
 │   ├── dashboard/             Web UI
 │   │   ├── handlers.go        REST API handlers
 │   │   └── server.go          HTTP server + embedded assets
+│   ├── tenant/                Multi-tenancy
+│   │   └── tenant.go          Tenant resolver (header/config/chain)
+│   ├── alert/                 Alerting
+│   │   ├── alert.go           Alert types + multi-notifier
+│   │   ├── slack.go           Slack webhook notifier
+│   │   ├── webhook.go         Generic webhook notifier
+│   │   └── ratelimit.go       Deduplication wrapper
+│   ├── ratelimit/             Request rate limiting
+│   │   └── limiter.go         Sliding window counter
+│   ├── admin/                 Admin API
+│   │   ├── handlers.go        REST API (budget CRUD, key listing)
+│   │   └── store.go           Runtime config persistence
 │   └── config/                YAML/env config (viper)
 ├── deploy/
 │   ├── docker-compose.yml     One-command local dev
@@ -413,6 +535,12 @@ agent-ledger/
 - [x] **Phase 4: Observability** — OpenTelemetry metrics, Prometheus endpoint, web dashboard
 - [x] **Phase 5: MCP Integration** — Meter MCP tool calls alongside LLM costs
 - [x] **Phase 6: Polish & Launch** — Docker, GoReleaser, Helm chart, docs
+- [x] **Phase 7: Multi-Provider** — Groq, Mistral, DeepSeek, Gemini, Cohere with path-prefix routing
+- [x] **Phase 8: Postgres** — Production-grade PostgreSQL storage backend
+- [x] **Phase 9: Multi-Tenancy** — Tenant isolation with header and config-based resolution
+- [x] **Phase 10: Alerting** — Slack and webhook notifications with deduplication
+- [x] **Phase 11: Rate Limiting** — Per-key request throttling + Homebrew tap
+- [x] **Phase 12: Admin API** — Runtime budget rule management
 
 ## Contributing
 

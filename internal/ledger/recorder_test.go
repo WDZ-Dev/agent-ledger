@@ -26,6 +26,9 @@ func (c *countingLedger) QueryCosts(_ context.Context, _ CostFilter) ([]CostEntr
 func (c *countingLedger) GetTotalSpend(_ context.Context, _ string, _, _ time.Time) (float64, error) {
 	return 0, nil
 }
+func (c *countingLedger) GetTotalSpendByTenant(_ context.Context, _ string, _, _ time.Time) (float64, error) {
+	return 0, nil
+}
 
 func (c *countingLedger) QueryCostTimeseries(_ context.Context, _ string, _, _ time.Time) ([]TimeseriesPoint, error) {
 	return nil, nil
@@ -44,6 +47,9 @@ func (f *failingLedger) QueryCosts(_ context.Context, _ CostFilter) ([]CostEntry
 }
 
 func (f *failingLedger) GetTotalSpend(_ context.Context, _ string, _, _ time.Time) (float64, error) {
+	return 0, nil
+}
+func (f *failingLedger) GetTotalSpendByTenant(_ context.Context, _ string, _, _ time.Time) (float64, error) {
 	return 0, nil
 }
 
