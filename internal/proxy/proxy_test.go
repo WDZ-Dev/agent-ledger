@@ -47,6 +47,14 @@ func (m *mockStore) QueryCostTimeseries(_ context.Context, _ string, _, _ time.T
 	return nil, nil
 }
 
+func (m *mockStore) QueryRecentExpensive(_ context.Context, _, _ time.Time, _ string, _ int) ([]ledger.ExpensiveRequest, error) {
+	return nil, nil
+}
+
+func (m *mockStore) QueryErrorStats(_ context.Context, _, _ time.Time, _ string) (*ledger.ErrorStats, error) {
+	return &ledger.ErrorStats{}, nil
+}
+
 func (m *mockStore) Close() error { return nil }
 
 func setupTestProxy(t *testing.T, upstream *httptest.Server) (*Proxy, *ledger.Recorder, *mockStore) {
@@ -68,7 +76,7 @@ func setupTestProxy(t *testing.T, upstream *httptest.Server) (*Proxy, *ledger.Re
 	})
 
 	m := meter.New()
-	p := New(reg, m, rec, nil, nil, nil, nil, nil, nil, logger)
+	p := New(reg, m, rec, nil, nil, nil, nil, nil, nil, nil, logger)
 	return p, rec, store
 }
 
@@ -266,7 +274,7 @@ func TestBudgetBlocks429(t *testing.T) {
 		},
 	}, logger)
 
-	p := New(reg, m, rec, budgetMgr, nil, nil, nil, nil, nil, logger)
+	p := New(reg, m, rec, budgetMgr, nil, nil, nil, nil, nil, nil, logger)
 
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
@@ -315,7 +323,7 @@ func TestBudgetWarningHeader(t *testing.T) {
 		},
 	}, logger)
 
-	p := New(reg, m, rec, budgetMgr, nil, nil, nil, nil, nil, logger)
+	p := New(reg, m, rec, budgetMgr, nil, nil, nil, nil, nil, nil, logger)
 
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))
@@ -360,7 +368,7 @@ func TestPreflightRejectsExpensiveRequest(t *testing.T) {
 		},
 	}, logger)
 
-	p := New(reg, m, rec, budgetMgr, nil, nil, nil, nil, nil, logger)
+	p := New(reg, m, rec, budgetMgr, nil, nil, nil, nil, nil, nil, logger)
 
 	// max_tokens=1000000 → worst-case output cost = $0.60 > $0.50 remaining
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}],"max_tokens":1000000}`
@@ -423,7 +431,7 @@ func TestAgentLoopBlocks429(t *testing.T) {
 	}, nil, logger)
 	defer tracker.Close()
 
-	p := New(reg, m, rec, nil, tracker, nil, nil, nil, nil, logger)
+	p := New(reg, m, rec, nil, tracker, nil, nil, nil, nil, nil, logger)
 
 	// Send 3 requests with the same session — third should trigger loop block.
 	for i := 0; i < 3; i++ {
@@ -468,7 +476,7 @@ func TestAgentSessionEndHeader(t *testing.T) {
 	}, nil, logger)
 	defer tracker.Close()
 
-	p := New(reg, m, rec, nil, tracker, nil, nil, nil, nil, logger)
+	p := New(reg, m, rec, nil, tracker, nil, nil, nil, nil, nil, logger)
 
 	// Start a session.
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`
@@ -522,7 +530,7 @@ func TestPreflightAllowsCheapRequest(t *testing.T) {
 		},
 	}, logger)
 
-	p := New(reg, m, rec, budgetMgr, nil, nil, nil, nil, nil, logger)
+	p := New(reg, m, rec, budgetMgr, nil, nil, nil, nil, nil, nil, logger)
 
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}],"max_tokens":100}`
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))

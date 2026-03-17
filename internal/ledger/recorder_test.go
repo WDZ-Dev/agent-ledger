@@ -33,6 +33,12 @@ func (c *countingLedger) GetTotalSpendByTenant(_ context.Context, _ string, _, _
 func (c *countingLedger) QueryCostTimeseries(_ context.Context, _ string, _, _ time.Time, _ string) ([]TimeseriesPoint, error) {
 	return nil, nil
 }
+func (c *countingLedger) QueryRecentExpensive(_ context.Context, _, _ time.Time, _ string, _ int) ([]ExpensiveRequest, error) {
+	return nil, nil
+}
+func (c *countingLedger) QueryErrorStats(_ context.Context, _, _ time.Time, _ string) (*ErrorStats, error) {
+	return &ErrorStats{}, nil
+}
 
 func (c *countingLedger) Close() error { return nil }
 
@@ -55,6 +61,12 @@ func (f *failingLedger) GetTotalSpendByTenant(_ context.Context, _ string, _, _ 
 
 func (f *failingLedger) QueryCostTimeseries(_ context.Context, _ string, _, _ time.Time, _ string) ([]TimeseriesPoint, error) {
 	return nil, nil
+}
+func (f *failingLedger) QueryRecentExpensive(_ context.Context, _, _ time.Time, _ string, _ int) ([]ExpensiveRequest, error) {
+	return nil, nil
+}
+func (f *failingLedger) QueryErrorStats(_ context.Context, _, _ time.Time, _ string) (*ErrorStats, error) {
+	return &ErrorStats{}, nil
 }
 
 func (f *failingLedger) Close() error { return nil }

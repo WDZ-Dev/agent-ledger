@@ -30,11 +30,12 @@ type Result struct {
 
 // Rule defines budget limits for a set of API keys.
 type Rule struct {
-	APIKeyPattern   string  `mapstructure:"api_key_pattern"`
-	DailyLimitUSD   float64 `mapstructure:"daily_limit_usd"`
-	MonthlyLimitUSD float64 `mapstructure:"monthly_limit_usd"`
-	SoftLimitPct    float64 `mapstructure:"soft_limit_pct"`
-	Action          string  `mapstructure:"action"`
+	APIKeyPattern   string  `mapstructure:"api_key_pattern" json:"api_key_pattern"`
+	TenantID        string  `mapstructure:"tenant_id" json:"tenant_id,omitempty"`
+	DailyLimitUSD   float64 `mapstructure:"daily_limit_usd" json:"daily_limit_usd"`
+	MonthlyLimitUSD float64 `mapstructure:"monthly_limit_usd" json:"monthly_limit_usd"`
+	SoftLimitPct    float64 `mapstructure:"soft_limit_pct" json:"soft_limit_pct"`
+	Action          string  `mapstructure:"action" json:"action"`
 }
 
 // Config holds the default budget and per-key override rules.
@@ -103,15 +104,63 @@ func (m *Manager) Enabled() bool {
 }
 
 // Check evaluates budget for a request. rawKey is used for rule pattern
-// matching; apiKeyHash is used for spend lookups.
-func (m *Manager) Check(ctx context.Context, rawKey, apiKeyHash string) Result {
+// matching; apiKeyHash is used for spend lookups. tenantID is optional;
+// when non-empty a tenant-scoped budget rule is also checked and the
+// stricter result wins.
+func (m *Manager) Check(ctx context.Context, rawKey, apiKeyHash, tenantID string) Result {
 	rule := m.matchRule(rawKey)
 	if rule.DailyLimitUSD <= 0 && rule.MonthlyLimitUSD <= 0 {
-		return Result{Decision: Allow}
+		// Even with no key-level limits, tenant limits may apply.
+		if tenantID == "" {
+			return Result{Decision: Allow}
+		}
+		tenantRule := m.matchTenantRule(tenantID)
+		if tenantRule == nil {
+			return Result{Decision: Allow}
+		}
+		tenantDaily, tenantMonthly := m.getTenantSpend(ctx, tenantID)
+		result := m.evaluateRule(*tenantRule, tenantDaily, tenantMonthly)
+		if result.Decision == Block && m.onBlock != nil {
+			m.onBlock(ctx, apiKeyHash, result)
+		} else if result.Decision == Warn && m.onWarn != nil {
+			m.onWarn(ctx, apiKeyHash, result)
+		}
+		return result
 	}
 
 	daily, monthly := m.getSpend(ctx, apiKeyHash)
+	result := m.evaluateRule(rule, daily, monthly)
 
+	if result.Decision == Block && m.onBlock != nil {
+		m.onBlock(ctx, apiKeyHash, result)
+	} else if result.Decision == Warn && m.onWarn != nil {
+		m.onWarn(ctx, apiKeyHash, result)
+	}
+
+	// Tenant-level budget check (if applicable).
+	if tenantID != "" {
+		tenantRule := m.matchTenantRule(tenantID)
+		if tenantRule != nil {
+			tenantDaily, tenantMonthly := m.getTenantSpend(ctx, tenantID)
+			tenantResult := m.evaluateRule(*tenantRule, tenantDaily, tenantMonthly)
+			// Take the stricter decision.
+			if tenantResult.Decision > result.Decision {
+				result = tenantResult
+				if result.Decision == Block && m.onBlock != nil {
+					m.onBlock(ctx, apiKeyHash, result)
+				} else if result.Decision == Warn && m.onWarn != nil {
+					m.onWarn(ctx, apiKeyHash, result)
+				}
+			}
+		}
+	}
+
+	return result
+}
+
+// evaluateRule checks daily/monthly spend against a rule and returns the
+// appropriate Result. It does not fire callbacks.
+func (m *Manager) evaluateRule(rule Rule, daily, monthly float64) Result {
 	result := Result{
 		Decision:     Allow,
 		DailySpent:   daily,
@@ -127,14 +176,8 @@ func (m *Manager) Check(ctx context.Context, rawKey, apiKeyHash string) Result {
 	if exceeded {
 		if rule.Action == "block" {
 			result.Decision = Block
-			if m.onBlock != nil {
-				m.onBlock(ctx, apiKeyHash, result)
-			}
-			return result
-		}
-		result.Decision = Warn
-		if m.onWarn != nil {
-			m.onWarn(ctx, apiKeyHash, result)
+		} else {
+			result.Decision = Warn
 		}
 		return result
 	}
@@ -147,10 +190,6 @@ func (m *Manager) Check(ctx context.Context, rawKey, apiKeyHash string) Result {
 		if rule.MonthlyLimitUSD > 0 && monthly >= rule.MonthlyLimitUSD*rule.SoftLimitPct {
 			result.Decision = Warn
 		}
-	}
-
-	if result.Decision == Warn && m.onWarn != nil {
-		m.onWarn(ctx, apiKeyHash, result)
 	}
 
 	return result
@@ -182,6 +221,51 @@ func (m *Manager) mergeWithDefault(r Rule) Rule {
 		r.Action = m.config.Default.Action
 	}
 	return r
+}
+
+// matchTenantRule finds a rule that targets a specific tenant (no API key pattern).
+func (m *Manager) matchTenantRule(tenantID string) *Rule {
+	for _, r := range m.config.Rules {
+		if r.TenantID == tenantID && r.APIKeyPattern == "" {
+			merged := m.mergeWithDefault(r)
+			return &merged
+		}
+	}
+	return nil
+}
+
+// getTenantSpend returns daily and monthly spend for a tenant, using a short-lived cache.
+func (m *Manager) getTenantSpend(ctx context.Context, tenantID string) (daily, monthly float64) {
+	cacheKey := "tenant:" + tenantID
+	if entry, ok := m.cache.Load(cacheKey); ok {
+		e := entry.(*spendEntry)
+		if time.Since(e.fetched) < m.cacheTTL {
+			return e.daily, e.monthly
+		}
+	}
+
+	now := time.Now().UTC()
+	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+
+	var err error
+	daily, err = m.ledger.GetTotalSpendByTenant(ctx, tenantID, dayStart, now)
+	if err != nil {
+		m.logger.Error("budget: querying tenant daily spend", "error", err, "tenant_id", tenantID)
+	}
+
+	monthly, err = m.ledger.GetTotalSpendByTenant(ctx, tenantID, monthStart, now)
+	if err != nil {
+		m.logger.Error("budget: querying tenant monthly spend", "error", err, "tenant_id", tenantID)
+	}
+
+	m.cache.Store(cacheKey, &spendEntry{
+		daily:   daily,
+		monthly: monthly,
+		fetched: time.Now(),
+	})
+
+	return daily, monthly
 }
 
 // getSpend returns daily and monthly spend, using a short-lived cache.

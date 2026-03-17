@@ -15,15 +15,17 @@ type Handler struct {
 	ledger    ledger.Ledger
 	budgetMgr *budget.Manager
 	token     string // admin authentication token
+	blocklist *Blocklist
 }
 
 // NewHandler creates an admin API handler.
-func NewHandler(store *Store, l ledger.Ledger, budgetMgr *budget.Manager, token string) *Handler {
+func NewHandler(store *Store, l ledger.Ledger, budgetMgr *budget.Manager, token string, blocklist *Blocklist) *Handler {
 	return &Handler{
 		store:     store,
 		ledger:    l,
 		budgetMgr: budgetMgr,
 		token:     token,
+		blocklist: blocklist,
 	}
 }
 
@@ -33,6 +35,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/admin/budgets/rules", h.requireAuth(h.handleCreateRule))
 	mux.HandleFunc("DELETE /api/admin/budgets/rules", h.requireAuth(h.handleDeleteRule))
 	mux.HandleFunc("GET /api/admin/api-keys", h.requireAuth(h.handleListAPIKeys))
+	mux.HandleFunc("GET /api/admin/api-keys/blocked", h.requireAuth(h.handleListBlocked))
+	mux.HandleFunc("POST /api/admin/api-keys/block", h.requireAuth(h.handleBlockKey))
+	mux.HandleFunc("DELETE /api/admin/api-keys/block", h.requireAuth(h.handleUnblockKey))
 	mux.HandleFunc("GET /api/admin/providers", h.requireAuth(h.handleListProviders))
 }
 
@@ -124,6 +129,88 @@ func (h *Handler) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleBlockKey adds an API key pattern to the blocklist.
+func (h *Handler) handleBlockKey(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Pattern string `json:"pattern"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeAdminError(w, http.StatusBadRequest, "invalid request: "+err.Error())
+		return
+	}
+	if req.Pattern == "" {
+		writeAdminError(w, http.StatusBadRequest, "pattern is required")
+		return
+	}
+
+	var patterns []string //nolint:prealloc
+	_ = h.store.GetJSON(r.Context(), "blocked_keys", &patterns)
+	patterns = append(patterns, req.Pattern)
+
+	if err := h.store.SetJSON(r.Context(), "blocked_keys", patterns); err != nil {
+		writeAdminError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if h.blocklist != nil {
+		h.blocklist.Refresh()
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	writeAdminJSON(w, map[string]string{"pattern": req.Pattern})
+}
+
+// handleUnblockKey removes an API key pattern from the blocklist.
+func (h *Handler) handleUnblockKey(w http.ResponseWriter, r *http.Request) {
+	pattern := r.URL.Query().Get("pattern")
+	if pattern == "" {
+		writeAdminError(w, http.StatusBadRequest, "pattern query parameter required")
+		return
+	}
+
+	var patterns []string
+	_ = h.store.GetJSON(r.Context(), "blocked_keys", &patterns)
+
+	var filtered []string
+	found := false
+	for _, p := range patterns {
+		if p == pattern {
+			found = true
+			continue
+		}
+		filtered = append(filtered, p)
+	}
+
+	if !found {
+		writeAdminError(w, http.StatusNotFound, "pattern not found")
+		return
+	}
+
+	if err := h.store.SetJSON(r.Context(), "blocked_keys", filtered); err != nil {
+		writeAdminError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if h.blocklist != nil {
+		h.blocklist.Refresh()
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleListBlocked returns the list of blocked API key patterns.
+func (h *Handler) handleListBlocked(w http.ResponseWriter, r *http.Request) {
+	var patterns []string
+	if err := h.store.GetJSON(r.Context(), "blocked_keys", &patterns); err != nil {
+		writeAdminError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if patterns == nil {
+		patterns = []string{}
+	}
+	writeAdminJSON(w, patterns)
 }
 
 // handleListAPIKeys returns known API key hashes with their spend.

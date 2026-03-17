@@ -19,6 +19,7 @@ func main() {
 
 	root.AddCommand(serveCmd())
 	root.AddCommand(costsCmd())
+	root.AddCommand(exportCmd())
 	root.AddCommand(mcpWrapCmd())
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newHealthcheckCmd())

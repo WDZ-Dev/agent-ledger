@@ -34,6 +34,12 @@ func (s *stubLedger) GetTotalSpendByTenant(_ context.Context, _ string, _, _ tim
 func (s *stubLedger) QueryCostTimeseries(_ context.Context, _ string, _, _ time.Time, _ string) ([]ledger.TimeseriesPoint, error) {
 	return nil, nil
 }
+func (s *stubLedger) QueryRecentExpensive(_ context.Context, _, _ time.Time, _ string, _ int) ([]ledger.ExpensiveRequest, error) {
+	return nil, nil
+}
+func (s *stubLedger) QueryErrorStats(_ context.Context, _, _ time.Time, _ string) (*ledger.ErrorStats, error) {
+	return &ledger.ErrorStats{}, nil
+}
 func (s *stubLedger) Close() error { return nil }
 
 func newTestLogger() *slog.Logger {
@@ -47,7 +53,7 @@ func TestBudgetAllowWhenNoLimits(t *testing.T) {
 		t.Error("should not be enabled with no limits")
 	}
 
-	result := mgr.Check(context.Background(), "sk-test-key", "hash123")
+	result := mgr.Check(context.Background(), "sk-test-key", "hash123", "")
 	if result.Decision != Allow {
 		t.Errorf("expected Allow, got %d", result.Decision)
 	}
@@ -69,7 +75,7 @@ func TestBudgetAllowUnderLimit(t *testing.T) {
 		t.Fatal("should be enabled")
 	}
 
-	result := mgr.Check(context.Background(), "sk-test-key", "hash123")
+	result := mgr.Check(context.Background(), "sk-test-key", "hash123", "")
 	if result.Decision != Allow {
 		t.Errorf("expected Allow, got %d", result.Decision)
 	}
@@ -87,7 +93,7 @@ func TestBudgetWarnAtSoftLimit(t *testing.T) {
 	}
 	mgr := NewManager(store, cfg, newTestLogger())
 
-	result := mgr.Check(context.Background(), "sk-test-key", "hash123")
+	result := mgr.Check(context.Background(), "sk-test-key", "hash123", "")
 	if result.Decision != Warn {
 		t.Errorf("expected Warn at 84%% daily, got %d", result.Decision)
 	}
@@ -105,7 +111,7 @@ func TestBudgetBlockAtHardLimit(t *testing.T) {
 	}
 	mgr := NewManager(store, cfg, newTestLogger())
 
-	result := mgr.Check(context.Background(), "sk-test-key", "hash123")
+	result := mgr.Check(context.Background(), "sk-test-key", "hash123", "")
 	if result.Decision != Block {
 		t.Errorf("expected Block, got %d", result.Decision)
 	}
@@ -127,7 +133,7 @@ func TestBudgetWarnActionAtHardLimit(t *testing.T) {
 	}
 	mgr := NewManager(store, cfg, newTestLogger())
 
-	result := mgr.Check(context.Background(), "sk-test-key", "hash123")
+	result := mgr.Check(context.Background(), "sk-test-key", "hash123", "")
 	if result.Decision != Warn {
 		t.Errorf("expected Warn (action=warn), got %d", result.Decision)
 	}
@@ -144,7 +150,7 @@ func TestBudgetMonthlyBlock(t *testing.T) {
 	}
 	mgr := NewManager(store, cfg, newTestLogger())
 
-	result := mgr.Check(context.Background(), "sk-test-key", "hash123")
+	result := mgr.Check(context.Background(), "sk-test-key", "hash123", "")
 	if result.Decision != Block {
 		t.Errorf("expected Block on monthly limit, got %d", result.Decision)
 	}
@@ -168,13 +174,13 @@ func TestBudgetRulePatternMatch(t *testing.T) {
 	mgr := NewManager(store, cfg, newTestLogger())
 
 	// Dev key should be blocked at 8.0 > 5.0.
-	result := mgr.Check(context.Background(), "sk-proj-dev-abc123", "hash-dev")
+	result := mgr.Check(context.Background(), "sk-proj-dev-abc123", "hash-dev", "")
 	if result.Decision != Block {
 		t.Errorf("expected Block for dev key, got %d", result.Decision)
 	}
 
 	// Non-dev key should be allowed at 8.0 < 50.0.
-	result = mgr.Check(context.Background(), "sk-proj-prod-xyz789", "hash-prod")
+	result = mgr.Check(context.Background(), "sk-proj-prod-xyz789", "hash-prod", "")
 	if result.Decision != Allow {
 		t.Errorf("expected Allow for prod key, got %d", result.Decision)
 	}
@@ -200,7 +206,7 @@ func TestBudgetRuleMergesDefaults(t *testing.T) {
 	mgr := NewManager(store, cfg, newTestLogger())
 
 	// Should block because monthly 600 > default 500.
-	result := mgr.Check(context.Background(), "sk-proj-dev-abc", "hash-dev")
+	result := mgr.Check(context.Background(), "sk-proj-dev-abc", "hash-dev", "")
 	if result.Decision != Block {
 		t.Errorf("expected Block from inherited monthly limit, got %d", result.Decision)
 	}
@@ -217,11 +223,11 @@ func TestBudgetSpendCaching(t *testing.T) {
 	mgr := NewManager(store, cfg, newTestLogger())
 
 	// First call populates cache.
-	mgr.Check(context.Background(), "sk-key", "hash1")
+	mgr.Check(context.Background(), "sk-key", "hash1", "")
 
 	// Change underlying spend — cached value should be returned.
 	store.dailySpend = 100.0
-	result := mgr.Check(context.Background(), "sk-key", "hash1")
+	result := mgr.Check(context.Background(), "sk-key", "hash1", "")
 	if result.Decision != Allow {
 		t.Error("expected cached Allow, but got blocked from stale data")
 	}

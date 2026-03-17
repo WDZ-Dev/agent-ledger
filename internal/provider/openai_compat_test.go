@@ -28,6 +28,14 @@ func TestOpenAICompatMatch_NoPrefix(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatMatch_ResponsesAPI(t *testing.T) {
+	o := NewOpenAI("https://api.openai.com")
+	r := &http.Request{URL: mustParseURL("/v1/responses"), Header: http.Header{}}
+	if !o.Match(r) {
+		t.Error("should match /v1/responses")
+	}
+}
+
 func TestOpenAICompatMatch_WithPrefix(t *testing.T) {
 	g := NewGroq("")
 

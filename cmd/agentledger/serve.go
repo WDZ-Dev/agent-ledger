@@ -61,7 +61,7 @@ func runServe(configPath string) error {
 		DB() *sql.DB
 	}
 	switch cfg.Storage.Driver {
-	case "postgres":
+	case "postgres": //nolint:goconst
 		pgStore, pgErr := ledger.NewPostgres(cfg.Storage.DSN, cfg.Storage.MaxOpenConns, cfg.Storage.MaxIdleConns)
 		if pgErr != nil {
 			return pgErr
@@ -102,6 +102,7 @@ func runServe(configPath string) error {
 	for _, r := range cfg.Budgets.Rules {
 		budgetCfg.Rules = append(budgetCfg.Rules, budget.Rule{
 			APIKeyPattern:   r.APIKeyPattern,
+			TenantID:        r.TenantID,
 			DailyLimitUSD:   r.DailyLimitUSD,
 			MonthlyLimitUSD: r.MonthlyLimitUSD,
 			SoftLimitPct:    r.SoftLimitPct,
@@ -276,8 +277,16 @@ func runServe(configPath string) error {
 		}
 	}
 
+	// Admin blocklist (optional — created early so the proxy can use it).
+	var blocklist *admin.Blocklist
+	var adminStore *admin.Store
+	if cfg.Admin.Enabled && cfg.Admin.Token != "" {
+		adminStore = admin.NewStore(store.DB())
+		blocklist = admin.NewBlocklist(adminStore)
+	}
+
 	// Proxy
-	p := proxy.New(reg, m, rec, budgetMgr, tracker, metrics, limiter, tenantResolver, transport, logger)
+	p := proxy.New(reg, m, rec, budgetMgr, tracker, metrics, limiter, tenantResolver, blocklist, transport, logger)
 
 	// HTTP routing:
 	//   /v1/*         → LLM proxy
@@ -313,9 +322,8 @@ func runServe(configPath string) error {
 	}
 
 	// Admin API (optional).
-	if cfg.Admin.Enabled && cfg.Admin.Token != "" {
-		adminStore := admin.NewStore(store.DB())
-		adminHandler := admin.NewHandler(adminStore, store, budgetMgr, cfg.Admin.Token)
+	if adminStore != nil && cfg.Admin.Token != "" {
+		adminHandler := admin.NewHandler(adminStore, store, budgetMgr, cfg.Admin.Token, blocklist)
 		adminHandler.RegisterRoutes(mux)
 		logger.Info("admin API enabled")
 	}

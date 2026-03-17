@@ -93,10 +93,10 @@ func (s *SQLite) QueryCosts(ctx context.Context, filter CostFilter) ([]CostEntry
 		groupCol = "session_id"
 	}
 
-	where := "timestamp >= ? AND timestamp <= ?"
+	where := "timestamp >= ? AND timestamp <= ?" //nolint:goconst
 	args := []any{filter.Since.UTC(), filter.Until.UTC()}
 	if filter.TenantID != "" {
-		where += " AND tenant_id = ?"
+		where += " AND tenant_id = ?" //nolint:goconst
 		args = append(args, filter.TenantID)
 	}
 
@@ -133,14 +133,17 @@ func (s *SQLite) QueryCostTimeseries(ctx context.Context, interval string, since
 	// Go's time.Time stores as "2006-01-02 15:04:05.999999 +0000 UTC" in SQLite,
 	// but strftime only parses ISO8601. Use substr to extract the datetime portion.
 	bucket := "strftime('%Y-%m-%d %H:00:00', substr(timestamp, 1, 19))"
-	if interval == "day" {
+	switch interval {
+	case "minute":
+		bucket = "strftime('%Y-%m-%d %H:%M:00', substr(timestamp, 1, 19))"
+	case "day":
 		bucket = "strftime('%Y-%m-%d 00:00:00', substr(timestamp, 1, 19))"
 	}
 
-	where := "timestamp >= ? AND timestamp <= ?"
+	where := "timestamp >= ? AND timestamp <= ?" //nolint:goconst
 	args := []any{since.UTC(), until.UTC()}
 	if tenantID != "" {
-		where += " AND tenant_id = ?"
+		where += " AND tenant_id = ?" //nolint:goconst
 		args = append(args, tenantID)
 	}
 
@@ -192,6 +195,69 @@ func (s *SQLite) GetTotalSpendByTenant(ctx context.Context, tenantID string, sin
 		return 0, fmt.Errorf("querying tenant spend: %w", err)
 	}
 	return total, nil
+}
+
+func (s *SQLite) QueryRecentExpensive(ctx context.Context, since, until time.Time, tenantID string, limit int) ([]ExpensiveRequest, error) {
+	where := "timestamp >= ? AND timestamp <= ?" //nolint:goconst //nolint:goconst
+	args := []any{since.UTC(), until.UTC()}
+	if tenantID != "" {
+		where += " AND tenant_id = ?" //nolint:goconst //nolint:goconst
+		args = append(args, tenantID)
+	}
+	args = append(args, limit)
+
+	q := fmt.Sprintf(`SELECT timestamp, provider, model, agent_id,
+		input_tokens, output_tokens, cost_usd, duration_ms
+	FROM usage_records WHERE %s
+	ORDER BY cost_usd DESC LIMIT ?`, where)
+
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("querying expensive requests: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var results []ExpensiveRequest
+	for rows.Next() {
+		var r ExpensiveRequest
+		if err := rows.Scan(&r.Timestamp, &r.Provider, &r.Model, &r.AgentID,
+			&r.InputTokens, &r.OutputTokens, &r.CostUSD, &r.DurationMS); err != nil {
+			return nil, fmt.Errorf("scanning expensive request: %w", err)
+		}
+		results = append(results, r)
+	}
+	return results, rows.Err()
+}
+
+func (s *SQLite) QueryErrorStats(ctx context.Context, since, until time.Time, tenantID string) (*ErrorStats, error) {
+	where := "timestamp >= ? AND timestamp <= ?" //nolint:goconst //nolint:goconst
+	args := []any{since.UTC(), until.UTC()}
+	if tenantID != "" {
+		where += " AND tenant_id = ?" //nolint:goconst //nolint:goconst
+		args = append(args, tenantID)
+	}
+
+	q := fmt.Sprintf(`SELECT
+		COUNT(*),
+		SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END),
+		SUM(CASE WHEN status_code = 429 THEN 1 ELSE 0 END),
+		SUM(CASE WHEN status_code >= 500 THEN 1 ELSE 0 END),
+		COALESCE(AVG(duration_ms), 0),
+		COALESCE(AVG(cost_usd), 0)
+	FROM usage_records WHERE %s`, where)
+
+	var stats ErrorStats
+	if err := s.db.QueryRowContext(ctx, q, args...).Scan(
+		&stats.TotalRequests, &stats.ErrorRequests,
+		&stats.Count429, &stats.Count5xx,
+		&stats.AvgDurationMS, &stats.AvgCostPerReq,
+	); err != nil {
+		return nil, fmt.Errorf("querying error stats: %w", err)
+	}
+	if stats.TotalRequests > 0 {
+		stats.ErrorRate = float64(stats.ErrorRequests) / float64(stats.TotalRequests)
+	}
+	return &stats, nil
 }
 
 // UpsertSession inserts or updates an agent session record.

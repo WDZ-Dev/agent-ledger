@@ -127,7 +127,7 @@ func TestStore_ListAll(t *testing.T) {
 func TestHandler_RequiresAuth(t *testing.T) {
 	db := setupTestDB(t)
 	store := admin.NewStore(db)
-	handler := admin.NewHandler(store, nil, nil, "secret-token")
+	handler := admin.NewHandler(store, nil, nil, "secret-token", nil)
 
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
@@ -162,7 +162,7 @@ func TestHandler_RequiresAuth(t *testing.T) {
 func TestHandler_CRUDRules(t *testing.T) {
 	db := setupTestDB(t)
 	store := admin.NewStore(db)
-	handler := admin.NewHandler(store, nil, nil, "token")
+	handler := admin.NewHandler(store, nil, nil, "token", nil)
 
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
@@ -226,7 +226,7 @@ func TestHandler_CRUDRules(t *testing.T) {
 func TestHandler_DeleteNonExistent(t *testing.T) {
 	db := setupTestDB(t)
 	store := admin.NewStore(db)
-	handler := admin.NewHandler(store, nil, nil, "token")
+	handler := admin.NewHandler(store, nil, nil, "token", nil)
 
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
@@ -243,7 +243,7 @@ func TestHandler_DeleteNonExistent(t *testing.T) {
 func TestHandler_NoToken(t *testing.T) {
 	db := setupTestDB(t)
 	store := admin.NewStore(db)
-	handler := admin.NewHandler(store, nil, nil, "")
+	handler := admin.NewHandler(store, nil, nil, "", nil)
 
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
