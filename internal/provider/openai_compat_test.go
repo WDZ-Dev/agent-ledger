@@ -62,6 +62,13 @@ func TestOpenAICompatRewritePath(t *testing.T) {
 		{"groq strip", NewGroq(""), "/groq/v1/chat/completions", "/v1/chat/completions"},
 		{"mistral strip", NewMistral(""), "/mistral/v1/chat/completions", "/v1/chat/completions"},
 		{"deepseek strip", NewDeepSeek(""), "/deepseek/v1/chat/completions", "/v1/chat/completions"},
+		{"together strip", NewTogether(""), "/together/v1/chat/completions", "/v1/chat/completions"},
+		{"fireworks strip", NewFireworks(""), "/fireworks/v1/chat/completions", "/v1/chat/completions"},
+		{"perplexity strip", NewPerplexity(""), "/perplexity/v1/chat/completions", "/v1/chat/completions"},
+		{"openrouter strip", NewOpenRouter(""), "/openrouter/v1/chat/completions", "/v1/chat/completions"},
+		{"xai strip", NewXAI(""), "/xai/v1/chat/completions", "/v1/chat/completions"},
+		{"cerebras strip", NewCerebras(""), "/cerebras/v1/chat/completions", "/v1/chat/completions"},
+		{"sambanova strip", NewSambaNova(""), "/sambanova/v1/chat/completions", "/v1/chat/completions"},
 	}
 
 	for _, tt := range tests {
@@ -75,16 +82,74 @@ func TestOpenAICompatRewritePath(t *testing.T) {
 }
 
 func TestOpenAICompatProviderNames(t *testing.T) {
-	if NewOpenAI("").Name() != "openai" {
-		t.Error("OpenAI name mismatch")
+	providers := map[string]*OpenAICompatible{
+		"openai":     NewOpenAI(""),
+		"groq":       NewGroq(""),
+		"mistral":    NewMistral(""),
+		"deepseek":   NewDeepSeek(""),
+		"together":   NewTogether(""),
+		"fireworks":  NewFireworks(""),
+		"perplexity": NewPerplexity(""),
+		"openrouter": NewOpenRouter(""),
+		"xai":        NewXAI(""),
+		"cerebras":   NewCerebras(""),
+		"sambanova":  NewSambaNova(""),
 	}
-	if NewGroq("").Name() != "groq" {
-		t.Error("Groq name mismatch")
+	for want, p := range providers {
+		if p.Name() != want {
+			t.Errorf("%s name = %q, want %q", want, p.Name(), want)
+		}
 	}
-	if NewMistral("").Name() != "mistral" {
-		t.Error("Mistral name mismatch")
+}
+
+func TestOpenAICompatNewProviderDefaults(t *testing.T) {
+	tests := []struct {
+		name     string
+		prov     *OpenAICompatible
+		upstream string
+		prefix   string
+	}{
+		{"together", NewTogether(""), "https://api.together.xyz", "/together"},
+		{"fireworks", NewFireworks(""), "https://api.fireworks.ai/inference", "/fireworks"},
+		{"perplexity", NewPerplexity(""), "https://api.perplexity.ai", "/perplexity"},
+		{"openrouter", NewOpenRouter(""), "https://openrouter.ai/api", "/openrouter"},
+		{"xai", NewXAI(""), "https://api.x.ai", "/xai"},
+		{"cerebras", NewCerebras(""), "https://api.cerebras.ai", "/cerebras"},
+		{"sambanova", NewSambaNova(""), "https://api.sambanova.ai", "/sambanova"},
 	}
-	if NewDeepSeek("").Name() != "deepseek" {
-		t.Error("DeepSeek name mismatch")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.prov.UpstreamURL() != tt.upstream {
+				t.Errorf("upstream = %q, want %q", tt.prov.UpstreamURL(), tt.upstream)
+			}
+			if tt.prov.PathPrefix() != tt.prefix {
+				t.Errorf("prefix = %q, want %q", tt.prov.PathPrefix(), tt.prefix)
+			}
+		})
+	}
+}
+
+func TestOpenAICompatMatch_NewProviders(t *testing.T) {
+	providers := []*OpenAICompatible{
+		NewTogether(""),
+		NewFireworks(""),
+		NewPerplexity(""),
+		NewOpenRouter(""),
+		NewXAI(""),
+		NewCerebras(""),
+		NewSambaNova(""),
+	}
+
+	for _, p := range providers {
+		prefix := p.PathPrefix()
+		r := &http.Request{URL: mustParseURL(prefix + "/v1/chat/completions"), Header: http.Header{}}
+		if !p.Match(r) {
+			t.Errorf("%s: should match %s/v1/chat/completions", p.Name(), prefix)
+		}
+		r = &http.Request{URL: mustParseURL("/v1/chat/completions"), Header: http.Header{}}
+		if p.Match(r) {
+			t.Errorf("%s: should not match /v1/chat/completions", p.Name())
+		}
 	}
 }

@@ -56,6 +56,16 @@ func TestExtractAPIKey(t *testing.T) {
 			"sk-ant-api03-xyz",
 		},
 		{
+			"azure api-key",
+			http.Header{"Api-Key": {"abc123def456"}},
+			"abc123def456",
+		},
+		{
+			"google x-goog-api-key",
+			http.Header{"X-Goog-Api-Key": {"AIzaSyAbc123"}},
+			"AIzaSyAbc123",
+		},
+		{
 			"no key",
 			http.Header{},
 			"",

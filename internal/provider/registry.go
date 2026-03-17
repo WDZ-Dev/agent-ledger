@@ -54,6 +54,8 @@ func NewProviderByType(name, typ, upstream, pathPrefix string) Provider {
 			upstream = "https://api.anthropic.com"
 		}
 		return NewAnthropic(upstream)
+	case "azure": //nolint:goconst
+		return NewAzure(upstream)
 	case "gemini": //nolint:goconst
 		return NewGemini(upstream)
 	case "cohere": //nolint:goconst
