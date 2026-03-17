@@ -15,6 +15,7 @@ import (
 
 	"github.com/oklog/ulid/v2"
 
+	"github.com/WDZ-Dev/agent-ledger/internal/admin"
 	"github.com/WDZ-Dev/agent-ledger/internal/agent"
 	"github.com/WDZ-Dev/agent-ledger/internal/budget"
 	"github.com/WDZ-Dev/agent-ledger/internal/ledger"
@@ -55,6 +56,7 @@ type Proxy struct {
 	metrics        *appmetrics.Metrics
 	limiter        *ratelimit.Limiter
 	tenantResolver tenant.Resolver
+	blocklist      *admin.Blocklist
 	logger         *slog.Logger
 }
 
@@ -62,7 +64,7 @@ type Proxy struct {
 // optional budget manager, agent tracker, metrics, and transport.
 // Pass nil for budgetMgr/tracker/metrics to disable those features.
 // Pass nil for transport to use the default pooled transport.
-func New(registry *provider.Registry, m *meter.Meter, recorder *ledger.Recorder, budgetMgr *budget.Manager, tracker *agent.Tracker, metrics *appmetrics.Metrics, limiter *ratelimit.Limiter, tenantRes tenant.Resolver, transport http.RoundTripper, logger *slog.Logger) *Proxy {
+func New(registry *provider.Registry, m *meter.Meter, recorder *ledger.Recorder, budgetMgr *budget.Manager, tracker *agent.Tracker, metrics *appmetrics.Metrics, limiter *ratelimit.Limiter, tenantRes tenant.Resolver, blocklist *admin.Blocklist, transport http.RoundTripper, logger *slog.Logger) *Proxy {
 	p := &Proxy{
 		registry:       registry,
 		meter:          m,
@@ -72,6 +74,7 @@ func New(registry *provider.Registry, m *meter.Meter, recorder *ledger.Recorder,
 		metrics:        metrics,
 		limiter:        limiter,
 		tenantResolver: tenantRes,
+		blocklist:      blocklist,
 		logger:         logger,
 	}
 
@@ -125,6 +128,12 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	apiKey := provider.ExtractAPIKey(r)
 	apiKeyHash := provider.HashAPIKey(apiKey)
 
+	// Blocklist check: reject blocked API keys immediately.
+	if p.blocklist != nil && p.blocklist.IsBlocked(apiKey) {
+		writeJSONError(w, http.StatusForbidden, "API key is blocked")
+		return
+	}
+
 	// Extract agent headers before stripping.
 	agentID, sessionID, userID, task := provider.ExtractAgentHeaders(r)
 	sessionEnd := r.Header.Get("X-Agent-Session-End") == "true"
@@ -159,10 +168,16 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Resolve tenant (if configured) — needed before budget check for tenant-scoped limits.
+	var tenantID string
+	if p.tenantResolver != nil {
+		tenantID = p.tenantResolver.ResolveTenant(r)
+	}
+
 	// Budget check: reject or warn before forwarding.
 	var budgetResult *budget.Result
 	if p.budget != nil && p.budget.Enabled() {
-		br := p.budget.Check(r.Context(), apiKey, apiKeyHash)
+		br := p.budget.Check(r.Context(), apiKey, apiKeyHash, tenantID)
 		budgetResult = &br
 		if br.Decision == budget.Block {
 			p.logger.Warn("budget exceeded",
@@ -196,12 +211,6 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-	}
-
-	// Resolve tenant (if configured).
-	var tenantID string
-	if p.tenantResolver != nil {
-		tenantID = p.tenantResolver.ResolveTenant(r)
 	}
 
 	// Store everything in context for ModifyResponse.

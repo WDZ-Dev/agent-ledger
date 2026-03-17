@@ -40,7 +40,8 @@ func (o *OpenAICompatible) Match(r *http.Request) bool {
 	return strings.HasPrefix(p, prefix+"/v1/chat/") ||
 		strings.HasPrefix(p, prefix+"/v1/completions") ||
 		strings.HasPrefix(p, prefix+"/v1/embeddings") ||
-		strings.HasPrefix(p, prefix+"/v1/models")
+		strings.HasPrefix(p, prefix+"/v1/models") ||
+		strings.HasPrefix(p, prefix+"/v1/responses")
 }
 
 // RewritePath strips the provider path prefix so upstream sees the native path.
@@ -52,10 +53,12 @@ func (o *OpenAICompatible) RewritePath(path string) string {
 }
 
 // openaiCompatRequest is the minimal subset of an OpenAI chat completion request.
+// It also supports the Responses API which uses max_output_tokens instead of max_tokens.
 type openaiCompatRequest struct {
-	Model     string `json:"model"`
-	MaxTokens int    `json:"max_tokens"`
-	Stream    bool   `json:"stream"`
+	Model           string `json:"model"`
+	MaxTokens       int    `json:"max_tokens"`
+	MaxOutputTokens int    `json:"max_output_tokens"`
+	Stream          bool   `json:"stream"`
 }
 
 func (o *OpenAICompatible) ParseRequest(body []byte) (*RequestMeta, error) {
@@ -63,19 +66,27 @@ func (o *OpenAICompatible) ParseRequest(body []byte) (*RequestMeta, error) {
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
 	}
+	maxTokens := req.MaxTokens
+	if req.MaxOutputTokens > 0 {
+		maxTokens = req.MaxOutputTokens
+	}
 	return &RequestMeta{
 		Model:     req.Model,
-		MaxTokens: req.MaxTokens,
+		MaxTokens: maxTokens,
 		Stream:    req.Stream,
 	}, nil
 }
 
 // openaiCompatResponse is the minimal subset of an OpenAI chat completion response.
+// It also supports the Responses API which uses input_tokens/output_tokens instead of
+// prompt_tokens/completion_tokens.
 type openaiCompatResponse struct {
 	Model string `json:"model"`
 	Usage struct {
 		PromptTokens     int `json:"prompt_tokens"`
 		CompletionTokens int `json:"completion_tokens"`
+		InputTokens      int `json:"input_tokens"`
+		OutputTokens     int `json:"output_tokens"`
 		TotalTokens      int `json:"total_tokens"`
 	} `json:"usage"`
 }
@@ -85,15 +96,25 @@ func (o *OpenAICompatible) ParseResponse(body []byte) (*ResponseMeta, error) {
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, err
 	}
+	inputTokens := resp.Usage.PromptTokens
+	if resp.Usage.InputTokens > 0 {
+		inputTokens = resp.Usage.InputTokens
+	}
+	outputTokens := resp.Usage.CompletionTokens
+	if resp.Usage.OutputTokens > 0 {
+		outputTokens = resp.Usage.OutputTokens
+	}
 	return &ResponseMeta{
 		Model:        resp.Model,
-		InputTokens:  resp.Usage.PromptTokens,
-		OutputTokens: resp.Usage.CompletionTokens,
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
 		TotalTokens:  resp.Usage.TotalTokens,
 	}, nil
 }
 
 // openaiCompatStreamChunk is the minimal subset of an OpenAI streaming chunk.
+// It also supports the Responses API streaming format where usage appears in
+// a "response.completed" event with a nested response object.
 type openaiCompatStreamChunk struct {
 	Model   string `json:"model"`
 	Choices []struct {
@@ -104,8 +125,20 @@ type openaiCompatStreamChunk struct {
 	Usage *struct {
 		PromptTokens     int `json:"prompt_tokens"`
 		CompletionTokens int `json:"completion_tokens"`
+		InputTokens      int `json:"input_tokens"`
+		OutputTokens     int `json:"output_tokens"`
 		TotalTokens      int `json:"total_tokens"`
 	} `json:"usage,omitempty"`
+	// Responses API fields
+	Type     string `json:"type,omitempty"`
+	Response *struct {
+		Model string `json:"model"`
+		Usage *struct {
+			InputTokens  int `json:"input_tokens"`
+			OutputTokens int `json:"output_tokens"`
+			TotalTokens  int `json:"total_tokens"`
+		} `json:"usage,omitempty"`
+	} `json:"response,omitempty"`
 }
 
 func (o *OpenAICompatible) ParseStreamChunk(_ string, data []byte) (*StreamChunkMeta, error) {
@@ -122,10 +155,29 @@ func (o *OpenAICompatible) ParseStreamChunk(_ string, data []byte) (*StreamChunk
 		meta.Text = chunk.Choices[0].Delta.Content
 	}
 
+	// Chat Completions usage (final chunk)
 	if chunk.Usage != nil {
 		meta.InputTokens = chunk.Usage.PromptTokens
+		if chunk.Usage.InputTokens > 0 {
+			meta.InputTokens = chunk.Usage.InputTokens
+		}
 		meta.OutputTokens = chunk.Usage.CompletionTokens
+		if chunk.Usage.OutputTokens > 0 {
+			meta.OutputTokens = chunk.Usage.OutputTokens
+		}
 		meta.Done = true
+	}
+
+	// Responses API: response.completed event has usage
+	if chunk.Type == "response.completed" && chunk.Response != nil {
+		if chunk.Response.Model != "" {
+			meta.Model = chunk.Response.Model
+		}
+		if chunk.Response.Usage != nil {
+			meta.InputTokens = chunk.Response.Usage.InputTokens
+			meta.OutputTokens = chunk.Response.Usage.OutputTokens
+			meta.Done = true
+		}
 	}
 
 	return meta, nil

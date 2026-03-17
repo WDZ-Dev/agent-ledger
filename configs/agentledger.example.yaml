@@ -107,6 +107,10 @@ recording:
 #       daily_limit_usd: 5.0
 #       monthly_limit_usd: 50.0
 #       action: "block"
+#     - tenant_id: "alpha"
+#       daily_limit_usd: 100.0
+#       monthly_limit_usd: 1000.0
+#       action: "block"
 
 # Circuit breaker (optional — omit to disable)
 # circuit_breaker:

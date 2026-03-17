@@ -66,9 +66,10 @@ type BudgetsConfig struct {
 	Rules   []BudgetRuleConfig `mapstructure:"rules"`
 }
 
-// BudgetRuleConfig defines budget limits for a set of API keys.
+// BudgetRuleConfig defines budget limits for a set of API keys or a tenant.
 type BudgetRuleConfig struct {
 	APIKeyPattern   string  `mapstructure:"api_key_pattern"`
+	TenantID        string  `mapstructure:"tenant_id"`
 	DailyLimitUSD   float64 `mapstructure:"daily_limit_usd"`
 	MonthlyLimitUSD float64 `mapstructure:"monthly_limit_usd"`
 	SoftLimitPct    float64 `mapstructure:"soft_limit_pct"`
