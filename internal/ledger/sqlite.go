@@ -83,7 +83,7 @@ func (s *SQLite) RecordUsage(ctx context.Context, record *UsageRecord) error {
 func (s *SQLite) QueryCosts(ctx context.Context, filter CostFilter) ([]CostEntry, error) {
 	groupCol := "model"
 	switch filter.GroupBy {
-	case "provider":
+	case "provider": //nolint:goconst
 		groupCol = "provider"
 	case "key":
 		groupCol = "api_key_hash"
