@@ -58,19 +58,19 @@ AI agents make dozens of LLM calls per task. Costs compound fast, loops happen s
 
 ---
 
-## vs LiteLLM
+## vs Competitors
 
-| | AgentLedger | LiteLLM |
+| | AgentLedger | Typical LLM proxy |
 |---|---|---|
-| **Architecture** | Go single binary, sub-10ms overhead | Python, documented memory leaks |
+| **Architecture** | Go single binary, sub-10ms overhead | Python runtime, external dependencies |
 | **Cost model** | Per-agent-execution tracking | Per-key/user/team only |
 | **Loop detection** | Built-in, zero-config | Not available |
 | **Ghost agent detection** | Built-in | Not available |
 | **Pre-flight estimation** | Rejects before API call | Post-hoc only |
-| **Budget enforcement** | Free, included | Enterprise paywall |
-| **Audit logs** | Free, included | Enterprise paywall |
-| **Setup** | `brew install` + one env var | Python + pip + database server |
-| **Dependencies** | Zero (embedded SQLite + dashboard) | PostgreSQL required, Redis recommended |
+| **Budget enforcement** | Free, included | Often paywalled |
+| **Audit logs** | Free, included | Often paywalled |
+| **Setup** | `brew install` + one env var | Runtime + package manager + database server |
+| **Dependencies** | Zero (embedded SQLite + dashboard) | External database required |
 
 ---
 
