@@ -33,6 +33,9 @@ Thumbs.db
 *.db-shm
 *.db-wal
 
+# Docs build
+site/
+
 # Build
 dist/
 build/output/

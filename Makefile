@@ -1,4 +1,4 @@
-.PHONY: build test test-short lint fmt vet vulncheck clean dev setup docker docker-run helm-lint release-dry
+.PHONY: build test test-short lint fmt vet vulncheck clean dev setup docker docker-run helm-lint release-dry docs docs-serve
 
 # Build variables
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -83,6 +83,16 @@ release-dry:
 
 ## check: Run all checks (what CI runs)
 check: fmt vet lint test vulncheck
+
+## docs: Build documentation site
+docs:
+	pip install -q -r docs/requirements.txt
+	mkdocs build --strict
+
+## docs-serve: Serve documentation locally with live reload
+docs-serve:
+	pip install -q -r docs/requirements.txt
+	mkdocs serve
 
 ## help: Show this help
 help:
