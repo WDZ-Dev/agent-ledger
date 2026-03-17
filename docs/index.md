@@ -90,5 +90,5 @@ export OPENAI_BASE_URL=http://localhost:8787/v1
 agentledger costs
 ```
 
-[Get started :material-arrow-right:](getting-started/installation.md){ .md-button .md-button--primary }
-[View on GitHub :material-github:](https://github.com/WDZ-Dev/agent-ledger){ .md-button }
+[Get started](getting-started/installation.md){ .md-button .md-button--primary }
+[View on GitHub](https://github.com/WDZ-Dev/agent-ledger){ .md-button }
