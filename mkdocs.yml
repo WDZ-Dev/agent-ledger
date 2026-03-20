@@ -1,5 +1,5 @@
 site_name: AgentLedger
-site_url: https://wdz-dev.github.io/agent-ledger/
+site_url: https://wdz-dev.github.io/agent-ledger/docs/
 site_description: "Know what your agents cost. Real-time cost attribution, budget enforcement, and financial observability for AI agents."
 repo_url: https://github.com/WDZ-Dev/agent-ledger
 repo_name: WDZ-Dev/agent-ledger

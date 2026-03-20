@@ -20,28 +20,48 @@ concurrency:
 
 jobs:
   build:
-    name: Build Docs
+    name: Build Site
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Checkout landing page
+        uses: actions/checkout@v4
+        with:
+          repository: WDZ-Dev/agent-ledger-website
+          path: agent-ledger-website
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build landing page
+        working-directory: agent-ledger-website
+        run: npm ci && npm run build
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
+      - name: Install docs dependencies
         run: pip install -r docs/requirements.txt
 
-      - name: Build site
+      - name: Build docs
         run: mkdocs build --strict
+
+      - name: Combine output
+        run: |
+          mkdir -p combined/docs
+          cp -r agent-ledger-website/dist/. combined/
+          cp -r site/. combined/docs/
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: site/
+          path: combined/
 
   deploy:
-    name: Deploy Docs
+    name: Deploy Site
     needs: build
     runs-on: ubuntu-latest
     environment:
