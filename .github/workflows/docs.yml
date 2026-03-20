@@ -30,6 +30,7 @@ jobs:
         with:
           repository: WDZ-Dev/agent-ledger-website
           path: agent-ledger-website
+          token: ${{ secrets.GH_PAT }}
 
       - uses: actions/setup-node@v4
         with:
