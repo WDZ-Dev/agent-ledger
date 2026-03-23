@@ -1,94 +1,129 @@
+---
+hide:
+  - navigation
+  - toc
+  - footer
+---
+
+<div class="al-landing" markdown>
+
+<div class="al-hero" markdown>
+
+<div class="al-logo-mark">AL</div>
+
 # AgentLedger
 
-**Know what your agents cost.** Meter. Budget. Control.
+**Know what your agents cost.**{ .al-tagline }
 
-AgentLedger is an open-source reverse proxy that gives you real-time cost attribution, budget enforcement, and financial observability for AI agents — without changing a single line of code.
+The open-source reverse proxy that gives you real-time cost tracking, budget enforcement, and financial observability for every AI agent call — without changing a single line of code.
 
-```bash
-export OPENAI_BASE_URL=http://localhost:8787/v1
-# That's it. Your agents now have cost tracking and budget enforcement.
+<div class="al-waitlist-form" markdown>
+
+<form class="al-form">
+  <input type="email" name="email" placeholder="you@company.com" required class="al-input" />
+  <button type="submit" class="al-btn">Join the waitlist</button>
+</form>
+
+<p class="al-form-note">Be the first to know when we launch. No spam.</p>
+
+</div>
+
+</div>
+
+<div class="al-divider"></div>
+
+<div class="al-features" markdown>
+
+<div class="al-feature" markdown>
+<div class="al-feature-icon">$</div>
+
+### Per-agent cost tracking
+Every LLM call attributed to the agent, session, and user that triggered it. Not just per-key — per-execution.
+</div>
+
+<div class="al-feature" markdown>
+<div class="al-feature-icon">//</div>
+
+### Budget enforcement
+Set daily and monthly limits. Requests that would exceed your budget get blocked before they hit the API.
+</div>
+
+<div class="al-feature" markdown>
+<div class="al-feature-icon">~</div>
+
+### Loop & ghost detection
+Automatically detect runaway agents stuck in loops and ghost processes silently burning tokens.
+</div>
+
+<div class="al-feature" markdown>
+<div class="al-feature-icon">&gt;</div>
+
+### Zero code changes
+Point your existing SDK at the proxy with one environment variable. Works with OpenAI, Anthropic, and 13 more providers.
+</div>
+
+</div>
+
+<div class="al-divider"></div>
+
+<div class="al-stats" markdown>
+
+<div class="al-stat" markdown>
+**15**{ .al-stat-number }
+
+LLM providers
+</div>
+
+<div class="al-stat" markdown>
+**83+**{ .al-stat-number }
+
+Models with built-in pricing
+</div>
+
+<div class="al-stat" markdown>
+**<10ms**{ .al-stat-number }
+
+Proxy overhead
+</div>
+
+<div class="al-stat" markdown>
+**0**{ .al-stat-number }
+
+Dependencies
+</div>
+
+</div>
+
+<div class="al-divider"></div>
+
+<div class="al-how" markdown>
+
+### How it works
+
+```
+Your agents ──→ AgentLedger proxy ──→ LLM APIs
+                     │
+                     ├── Track costs per agent
+                     ├── Enforce budgets
+                     ├── Detect loops
+                     └── Dashboard + alerts
 ```
 
----
+One binary. One env var. Full visibility.
 
-## Why AgentLedger?
+</div>
 
-AI agents make dozens of LLM calls per task. Costs compound fast, loops happen silently, and provider dashboards only show you the damage after the fact.
+<div class="al-divider"></div>
 
-- **Real-time cost tracking** — every request metered, every token counted
-- **Budget enforcement** — daily and monthly limits with automatic blocking
-- **Pre-flight estimation** — rejects requests that would exceed your budget before they hit the API
-- **Agent session tracking** — group multi-call agent runs into sessions, detect loops and ghost agents
-- **15 LLM providers** — OpenAI, Anthropic, Gemini, Groq, Mistral, DeepSeek, Cohere, and more
-- **Zero code changes** — works with any OpenAI/Anthropic SDK via base URL override
+<div class="al-bottom-cta" markdown>
 
----
+### Get early access
 
-## Architecture
+<form class="al-form">
+  <input type="email" name="email" placeholder="you@company.com" required class="al-input" />
+  <button type="submit" class="al-btn">Join the waitlist</button>
+</form>
 
-```
-  Agents (any SDK) --+
-                     |     +--------------------+     OpenAI
-  MCP Servers -------+---> |  AgentLedger :8787 | --> Anthropic
-  (stdio/HTTP)       |     |                    |     Groq, Mistral
-                     |     |  Budget limits     |     DeepSeek, Gemini
-                     |     |  Rate limiting     |     Cohere, + 8 more
-                     |     |  Token metering    |
-                     |     |  Agent sessions    | --> Slack / Webhooks
-                     |     |  Cost recording    |
-                     |     |                    |
-                     |     |  SQLite/Postgres   |
-                     |     |  Dashboard         |
-                     |     |  Prometheus        |
-                     |     +--------------------+
-```
+</div>
 
----
-
-## At a Glance
-
-| | |
-|---|---|
-| **Providers** | 15 LLM providers, 83+ models with built-in pricing |
-| **Overhead** | Sub-10ms proxy latency (~0.1ms typical) |
-| **Dependencies** | Zero — single Go binary with embedded SQLite and dashboard |
-| **Setup** | One environment variable, zero code changes |
-| **License** | Apache 2.0 — all features free and open-source |
-| **Platforms** | Linux, macOS, Windows (amd64 + arm64) |
-
----
-
-## vs Competitors
-
-| | AgentLedger | Typical LLM proxy |
-|---|---|---|
-| **Architecture** | Go single binary, sub-10ms overhead | Python runtime, external dependencies |
-| **Cost model** | Per-agent-execution tracking | Per-key/user/team only |
-| **Loop detection** | Built-in, zero-config | Not available |
-| **Ghost agent detection** | Built-in | Not available |
-| **Pre-flight estimation** | Rejects before API call | Post-hoc only |
-| **Budget enforcement** | Free, included | Often paywalled |
-| **Audit logs** | Free, included | Often paywalled |
-| **Setup** | `brew install` + one env var | Runtime + package manager + database server |
-| **Dependencies** | Zero (embedded SQLite + dashboard) | External database required |
-
----
-
-## Quick Start
-
-```bash
-# Install
-brew install wdz-dev/tap/agentledger
-
-# Start the proxy
-agentledger serve
-
-# Point your agents at it
-export OPENAI_BASE_URL=http://localhost:8787/v1
-
-# Check your costs
-agentledger costs
-```
-
-[Get started](getting-started/installation.md){ .md-button .md-button--primary }
-[View on GitHub](https://github.com/WDZ-Dev/agent-ledger){ .md-button }
+</div>
