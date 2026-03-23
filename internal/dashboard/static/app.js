@@ -366,7 +366,7 @@
   // ── API Keys table ──
   async function loadAPIKeys() {
     try {
-      const keys = await fetchJSON("/api/admin/api-keys");
+      const keys = await adminFetch("/api/admin/api-keys");
       const tbody = $("#apikeys-body");
       tbody.innerHTML = "";
       if (!keys || !keys.length) {
