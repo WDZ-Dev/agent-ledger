@@ -96,6 +96,48 @@ Dependencies
 
 <div class="al-divider"></div>
 
+<div class="al-usecase" markdown>
+
+### Your OpenClaw agent spent $47 last night.
+
+OpenClaw agents run autonomously — managing email, scheduling meetings, browsing the web. Every action triggers LLM calls. Without visibility, costs spiral silently.
+
+AgentLedger sits between OpenClaw and the LLM providers. Set a $10 daily budget and AgentLedger kills runaway spend before it hits your bill.
+
+<div class="al-usecase-steps" markdown>
+
+<div class="al-usecase-step" markdown>
+**1. Install**
+
+```
+brew install wdz-dev/tap/agentledger
+agentledger serve
+```
+</div>
+
+<div class="al-usecase-step" markdown>
+**2. Point OpenClaw at it**
+
+```json
+{
+  "baseUrl": "http://localhost:8787/v1",
+  "api": "openai-completions"
+}
+```
+</div>
+
+<div class="al-usecase-step" markdown>
+**3. See everything**
+
+Open `localhost:8787` — every call, every dollar, every agent session. Set budgets. Get alerts. Sleep at night.
+</div>
+
+</div>
+
+</div>
+
+<div class="al-divider"></div>
+
 <div class="al-how" markdown>
 
 ### How it works
