@@ -4,6 +4,7 @@ site_description: "Know what your agents cost. Real-time cost attribution, budge
 
 theme:
   name: material
+  favicon: assets/favicon.svg
   palette:
     - scheme: slate
       primary: custom
