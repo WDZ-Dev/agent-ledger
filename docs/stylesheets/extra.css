@@ -248,6 +248,60 @@
   margin: 0;
 }
 
+/* ── OpenClaw use case ── */
+.al-usecase {
+  text-align: center;
+}
+
+.al-usecase h3 {
+  color: #e6edf3;
+  font-size: 1.3rem;
+  margin-bottom: 1rem;
+}
+
+.al-usecase > p {
+  color: #8b949e;
+  font-size: 1rem;
+  line-height: 1.7;
+  max-width: 600px;
+  margin: 0 auto 2rem;
+}
+
+.al-usecase-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.5rem;
+  text-align: left;
+}
+
+.al-usecase-step {
+  padding: 1.25rem;
+  background: #111820;
+  border: 1px solid #1c2129;
+  border-radius: 12px;
+}
+
+.al-usecase-step p strong {
+  color: #3fb950;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.85rem;
+}
+
+.al-usecase-step pre {
+  margin: 0.75rem 0 0;
+  font-size: 0.8rem;
+}
+
+.al-usecase-step code {
+  font-size: 0.8rem;
+}
+
+@media (max-width: 768px) {
+  .al-usecase-steps {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ── How it works ── */
 .al-how {
   text-align: center;

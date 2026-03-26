@@ -99,6 +99,48 @@ export ANTHROPIC_BASE_URL=http://localhost:8787
 # curl http://localhost:8787/sambanova/v1/chat/completions
 ```
 
+### OpenClaw
+
+Track what your OpenClaw agents cost. Add AgentLedger as a custom provider in `~/.openclaw/openclaw.json`:
+
+```json
+{
+  "models": {
+    "providers": {
+      "agentledger-openai": {
+        "baseUrl": "http://localhost:8787/v1",
+        "apiKey": "${OPENAI_API_KEY}",
+        "api": "openai-completions",
+        "models": [
+          { "id": "gpt-4o", "name": "GPT-4o via AgentLedger", "contextWindow": 128000, "maxTokens": 16384 }
+        ]
+      },
+      "agentledger-anthropic": {
+        "baseUrl": "http://localhost:8787",
+        "apiKey": "${ANTHROPIC_API_KEY}",
+        "api": "anthropic-messages",
+        "models": [
+          { "id": "claude-sonnet-4-20250514", "name": "Claude Sonnet via AgentLedger", "contextWindow": 200000, "maxTokens": 8192 }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "models": ["agentledger-openai/gpt-4o", "agentledger-anthropic/claude-sonnet-4-20250514"]
+    }
+  }
+}
+```
+
+Apply the config and all OpenClaw LLM calls flow through AgentLedger:
+
+```bash
+openclaw gateway config.apply --file ~/.openclaw/openclaw.json
+```
+
+Open `http://localhost:8787` to see every call, set budget limits, and detect runaway agents.
+
 ### Check your costs
 
 ```bash
