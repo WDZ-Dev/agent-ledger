@@ -1,8 +1,6 @@
 ---
 hide:
-  - navigation
   - toc
-  - footer
 ---
 
 <div class="al-landing" markdown>
@@ -46,17 +44,6 @@ hide:
 **Know what your agents cost.**{ .al-tagline }
 
 The open-source reverse proxy that gives you real-time cost tracking, budget enforcement, and financial observability for every AI agent call — without changing a single line of code.
-
-<div class="al-waitlist-form" markdown>
-
-<form class="al-form">
-  <input type="email" name="email" placeholder="you@company.com" required class="al-input" />
-  <button type="submit" class="al-btn">Join the waitlist</button>
-</form>
-
-<p class="al-form-note">Be the first to know when we launch. No spam.</p>
-
-</div>
 
 </div>
 
@@ -126,48 +113,6 @@ Dependencies
 
 <div class="al-divider"></div>
 
-<div class="al-usecase" markdown>
-
-### Your OpenClaw agent spent $47 last night.
-
-OpenClaw agents run autonomously — managing email, scheduling meetings, browsing the web. Every action triggers LLM calls. Without visibility, costs spiral silently.
-
-AgentLedger sits between OpenClaw and the LLM providers. Set a $10 daily budget and AgentLedger kills runaway spend before it hits your bill.
-
-<div class="al-usecase-steps" markdown>
-
-<div class="al-usecase-step" markdown>
-**1. Install**
-
-```
-brew install wdz-dev/tap/agentledger
-agentledger serve
-```
-</div>
-
-<div class="al-usecase-step" markdown>
-**2. Point OpenClaw at it**
-
-```json
-{
-  "baseUrl": "http://localhost:8787/v1",
-  "api": "openai-completions"
-}
-```
-</div>
-
-<div class="al-usecase-step" markdown>
-**3. See everything**
-
-Open `localhost:8787` — every call, every dollar, every agent session. Set budgets. Get alerts. Sleep at night.
-</div>
-
-</div>
-
-</div>
-
-<div class="al-divider"></div>
-
 <div class="al-how" markdown>
 
 ### How it works
@@ -189,12 +134,21 @@ One binary. One env var. Full visibility.
 
 <div class="al-bottom-cta" markdown>
 
-### Get early access
+### Get started
 
-<form class="al-form">
-  <input type="email" name="email" placeholder="you@company.com" required class="al-input" />
-  <button type="submit" class="al-btn">Join the waitlist</button>
-</form>
+```bash
+brew install wdz-dev/tap/agentledger
+agentledger serve
+```
+
+Then point your agent at the proxy:
+
+```bash
+export OPENAI_BASE_URL=http://localhost:8787/v1
+```
+
+[Quick Start](getting-started/quickstart.md){ .al-btn }
+[Installation](getting-started/installation.md){ .al-btn .al-btn--secondary }
 
 </div>
 
