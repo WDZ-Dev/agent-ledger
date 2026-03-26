@@ -26,6 +26,27 @@
     return (n * 100).toFixed(1) + "%";
   }
 
+  function fmtDuration(startedAt, endedAt) {
+    var start = new Date(startedAt).getTime();
+    var end = endedAt ? new Date(endedAt).getTime() : Date.now();
+    var ms = end - start;
+    if (ms < 0) return "--";
+    var secs = Math.floor(ms / 1000);
+    if (secs < 60) return secs + "s";
+    var mins = Math.floor(secs / 60);
+    secs = secs % 60;
+    if (mins < 60) return mins + "m " + secs + "s";
+    var hrs = Math.floor(mins / 60);
+    mins = mins % 60;
+    return hrs + "h " + mins + "m";
+  }
+
+  function fmtTokenCount(n) {
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
+    if (n >= 1000) return (n / 1000).toFixed(1) + "k";
+    return String(n);
+  }
+
   const DONUT_COLORS = [
     "#388bfd", "#3fb950", "#d29922", "#f85149", "#a371f7",
     "#79c0ff", "#56d364", "#e3b341", "#ff7b72", "#bc8cff",
@@ -49,6 +70,8 @@
     adminToken = $("#admin-token").value.trim();
     localStorage.setItem("agentledger_admin_token", adminToken);
     loadRules();
+    loadBudgetStatus();
+    loadBlocked();
   });
 
   async function adminFetch(url, opts = {}) {
@@ -108,6 +131,7 @@
 
   // ── Timeseries chart ──
   let timeseriesChart = null;
+  let currentTimeseriesTab = "cost";
 
   function formatLabel(ts, interval) {
     const d = new Date(ts);
@@ -193,6 +217,102 @@
     }
   }
 
+  // ── Token timeseries chart ──
+  let tokenChart = null;
+
+  async function loadTokenTimeseries() {
+    const hours = parseFloat($("#timeseries-hours").value);
+    let interval = "hour";
+    if (hours <= 6) interval = "minute";
+    else if (hours > 24) interval = "day";
+
+    try {
+      const points = await fetchJSON(
+        tenantQS(`/api/dashboard/timeseries/tokens?interval=${interval}&hours=${hours}`)
+      );
+      const data = points || [];
+      const labels = data.map((p) => formatLabel(p.Timestamp, interval));
+      const ctx = document.getElementById("token-chart").getContext("2d");
+
+      if (tokenChart) tokenChart.destroy();
+
+      tokenChart = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels,
+          datasets: [
+            {
+              label: "Input Tokens",
+              data: data.map((p) => p.InputTokens),
+              backgroundColor: "rgba(56, 139, 253, 0.15)",
+              borderColor: "rgba(56, 139, 253, 1)",
+              borderWidth: 2,
+              fill: true,
+              tension: 0.35,
+              pointRadius: data.length > 60 ? 0 : 3,
+            },
+            {
+              label: "Output Tokens",
+              data: data.map((p) => p.OutputTokens),
+              backgroundColor: "rgba(63, 185, 80, 0.15)",
+              borderColor: "rgba(63, 185, 80, 1)",
+              borderWidth: 2,
+              fill: true,
+              tension: 0.35,
+              pointRadius: data.length > 60 ? 0 : 3,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { intersect: false, mode: "index" },
+          plugins: {
+            legend: { display: true, position: "top", labels: { color: "#8b949e", font: { size: 11 } } },
+            tooltip: {
+              backgroundColor: "#1c2128", borderColor: "#30363d", borderWidth: 1,
+              titleColor: "#e1e4e8", bodyColor: "#c9d1d9",
+              padding: 12, cornerRadius: 8,
+              callbacks: { label: (ctx) => " " + ctx.dataset.label + ": " + fmtTokenCount(ctx.parsed.y) },
+            },
+          },
+          scales: {
+            x: {
+              grid: { color: "rgba(33,38,45,0.5)", drawBorder: false },
+              ticks: { color: "#8b949e", font: { size: 11 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 10 },
+            },
+            y: {
+              beginAtZero: true,
+              stacked: true,
+              grid: { color: "rgba(33,38,45,0.5)", drawBorder: false },
+              ticks: { color: "#8b949e", font: { size: 11 }, maxTicksLimit: 6, callback: (v) => fmtTokenCount(v) },
+            },
+          },
+        },
+      });
+    } catch (e) {
+      console.error("token timeseries:", e);
+    }
+  }
+
+  // Cost/Token tab switching
+  document.querySelectorAll("[data-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll("[data-tab]").forEach((b) => b.classList.remove("tab-active"));
+      btn.classList.add("tab-active");
+      currentTimeseriesTab = btn.dataset.tab;
+      if (currentTimeseriesTab === "cost") {
+        document.getElementById("timeseries-chart").parentElement.style.display = "";
+        document.getElementById("token-chart-container").style.display = "none";
+        loadTimeseries();
+      } else {
+        document.getElementById("timeseries-chart").parentElement.style.display = "none";
+        document.getElementById("token-chart-container").style.display = "";
+        loadTokenTimeseries();
+      }
+    });
+  });
+
   // ── Provider donut chart ──
   let providerChart = null;
 
@@ -267,6 +387,124 @@
     }
   }
 
+  // ── Agent cost leaderboard ──
+  let agentChart = null;
+
+  async function loadAgentChart() {
+    try {
+      const entries = await fetchJSON(tenantQS("/api/dashboard/costs?group_by=agent&hours=168"));
+      if (!entries || !entries.length) return;
+
+      const top10 = entries.slice(0, 10);
+      const labels = top10.map((e) => e.AgentID || "(none)");
+      const values = top10.map((e) => e.TotalCostUSD);
+      const ctx = document.getElementById("agent-chart").getContext("2d");
+
+      if (agentChart) agentChart.destroy();
+
+      agentChart = new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels,
+          datasets: [{
+            label: "Cost (USD)",
+            data: values,
+            backgroundColor: DONUT_COLORS.slice(0, labels.length),
+            borderColor: "#161b22",
+            borderWidth: 1,
+            borderRadius: 4,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          indexAxis: "y",
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: "#1c2128", borderColor: "#30363d", borderWidth: 1,
+              titleColor: "#e1e4e8", bodyColor: "#c9d1d9",
+              padding: 12, cornerRadius: 8,
+              callbacks: { label: (ctx) => " " + fmtCost(ctx.parsed.x) },
+            },
+          },
+          scales: {
+            x: {
+              beginAtZero: true,
+              grid: { color: "rgba(33,38,45,0.5)", drawBorder: false },
+              ticks: { color: "#8b949e", font: { size: 11 }, callback: (v) => fmtAxis(v) },
+            },
+            y: {
+              grid: { display: false },
+              ticks: { color: "#c9d1d9", font: { size: 11 } },
+            },
+          },
+        },
+      });
+    } catch (e) {
+      console.error("agent chart:", e);
+    }
+  }
+
+  // ── Model usage chart ──
+  let modelChart = null;
+
+  async function loadModelChart() {
+    try {
+      const entries = await fetchJSON(tenantQS("/api/dashboard/costs?group_by=model&hours=168"));
+      if (!entries || !entries.length) return;
+
+      const top10 = entries.slice(0, 10);
+      const labels = top10.map((e) => e.Model || "(unknown)");
+      const values = top10.map((e) => e.TotalCostUSD);
+      const ctx = document.getElementById("model-chart").getContext("2d");
+
+      if (modelChart) modelChart.destroy();
+
+      modelChart = new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels,
+          datasets: [{
+            label: "Cost (USD)",
+            data: values,
+            backgroundColor: DONUT_COLORS.slice(0, labels.length),
+            borderColor: "#161b22",
+            borderWidth: 1,
+            borderRadius: 4,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          indexAxis: "y",
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: "#1c2128", borderColor: "#30363d", borderWidth: 1,
+              titleColor: "#e1e4e8", bodyColor: "#c9d1d9",
+              padding: 12, cornerRadius: 8,
+              callbacks: { label: (ctx) => " " + fmtCost(ctx.parsed.x) },
+            },
+          },
+          scales: {
+            x: {
+              beginAtZero: true,
+              grid: { color: "rgba(33,38,45,0.5)", drawBorder: false },
+              ticks: { color: "#8b949e", font: { size: 11 }, callback: (v) => fmtAxis(v) },
+            },
+            y: {
+              grid: { display: false },
+              ticks: { color: "#c9d1d9", font: { size: 11 } },
+            },
+          },
+        },
+      });
+    } catch (e) {
+      console.error("model chart:", e);
+    }
+  }
+
   // ── Cost breakdown table ──
   async function loadCosts() {
     const groupBy = $("#costs-group").value;
@@ -330,41 +568,168 @@
   }
 
   // ── Sessions table ──
+  let currentSessionTab = "active";
+
+  function renderSessionRows(sessions, tbody) {
+    tbody.innerHTML = "";
+    if (!sessions || !sessions.length) {
+      tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#8b949e">No sessions</td></tr>';
+      return;
+    }
+
+    // Anomaly detection: compute mean cost and calls
+    var totalCost = 0, totalCalls = 0;
+    for (var i = 0; i < sessions.length; i++) {
+      totalCost += (sessions[i].TotalCostUSD || sessions[i].total_cost_usd || 0);
+      totalCalls += (sessions[i].CallCount || sessions[i].call_count || 0);
+    }
+    var meanCost = totalCost / sessions.length;
+    var meanCalls = totalCalls / sessions.length;
+
+    for (const s of sessions) {
+      var id = s.ID || s.id || "";
+      var agentID = s.AgentID || s.agent_id || "(none)";
+      var userID = s.UserID || s.user_id || "(none)";
+      var task = s.Task || s.task || "";
+      var callCount = s.CallCount || s.call_count || 0;
+      var costUSD = s.TotalCostUSD || s.total_cost_usd || 0;
+      var totalTokens = s.TotalTokens || s.total_tokens || 0;
+      var status = s.Status || s.status || "";
+      var startedAt = s.StartedAt || s.started_at || "";
+      var endedAt = s.EndedAt || s.ended_at || null;
+
+      var isAnomaly = (meanCost > 0 && costUSD > meanCost * 3) ||
+                      (meanCalls > 0 && callCount > meanCalls * 3);
+
+      const tr = document.createElement("tr");
+      if (isAnomaly) tr.classList.add("session-anomaly");
+      const statusClass = "status-" + status;
+      const started = new Date(startedAt).toLocaleString("en-US", {
+        month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+      });
+      var duration = fmtDuration(startedAt, endedAt);
+      var taskDisplay = task ? task.substring(0, 40) : "";
+      if (task && task.length > 40) taskDisplay += "...";
+
+      tr.innerHTML = `
+        <td><code>${esc(id.slice(0, 12))}</code></td>
+        <td>${esc(agentID)}</td>
+        <td>${esc(userID)}</td>
+        <td title="${esc(task)}">${esc(taskDisplay)}</td>
+        <td>${callCount}</td>
+        <td>${fmtCost(costUSD)}</td>
+        <td>${totalTokens.toLocaleString()}</td>
+        <td class="${statusClass}">${status}</td>
+        <td>${duration}</td>
+        <td>${started}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+  }
+
   async function loadSessions() {
     try {
       const sessions = await fetchJSON("/api/dashboard/sessions");
-      const tbody = $("#sessions-body");
-      tbody.innerHTML = "";
-      if (!sessions || !sessions.length) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#8b949e">No active sessions</td></tr>';
-        return;
-      }
-      for (const s of sessions) {
-        const tr = document.createElement("tr");
-        const statusClass = "status-" + s.Status;
-        const started = new Date(s.StartedAt).toLocaleString("en-US", {
-          month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
-        });
-        tr.innerHTML = `
-          <td><code>${esc(s.ID.slice(0, 12))}</code></td>
-          <td>${esc(s.AgentID || "(none)")}</td>
-          <td>${esc(s.UserID || "(none)")}</td>
-          <td>${s.CallCount}</td>
-          <td>${fmtCost(s.TotalCostUSD)}</td>
-          <td class="${statusClass}">${s.Status}</td>
-          <td>${started}</td>
-        `;
-        tbody.appendChild(tr);
+      if (currentSessionTab === "active") {
+        renderSessionRows(sessions, $("#sessions-body"));
       }
     } catch (e) {
       console.error("sessions:", e);
     }
   }
 
+  async function loadSessionHistory(hours) {
+    try {
+      const sessions = await fetchJSON(`/api/dashboard/sessions/history?hours=${hours}&limit=50`);
+      renderSessionRows(sessions, $("#sessions-body"));
+    } catch (e) {
+      console.error("session history:", e);
+    }
+  }
+
+  // Session tab switching
+  document.querySelectorAll("[data-session-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll("[data-session-tab]").forEach((b) => b.classList.remove("tab-active"));
+      btn.classList.add("tab-active");
+      currentSessionTab = btn.dataset.sessionTab;
+      if (currentSessionTab === "active") {
+        loadSessions();
+      } else {
+        loadSessionHistory(parseInt(currentSessionTab, 10));
+      }
+    });
+  });
+
   function esc(s) {
     const el = document.createElement("span");
     el.textContent = s;
     return el.innerHTML;
+  }
+
+  // ── Latency stats + chart ──
+  let latencyChart = null;
+
+  async function loadLatency() {
+    try {
+      const data = await fetchJSON(tenantQS("/api/dashboard/latency?hours=24"));
+      if (!data) return;
+
+      // Update stat items
+      $("#stat-p50").textContent = data.p50_ms.toFixed(0) + "ms";
+      $("#stat-p90").textContent = data.p90_ms.toFixed(0) + "ms";
+      $("#stat-p99").textContent = data.p99_ms.toFixed(0) + "ms";
+
+      // Render bucket chart
+      var buckets = data.buckets || [];
+      if (!buckets.length) return;
+
+      var labels = buckets.map(function(b) { return b.label; });
+      var values = buckets.map(function(b) { return b.count; });
+      var ctx = document.getElementById("latency-chart").getContext("2d");
+
+      if (latencyChart) latencyChart.destroy();
+
+      latencyChart = new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels: labels,
+          datasets: [{
+            label: "Requests",
+            data: values,
+            backgroundColor: "rgba(163, 113, 247, 0.6)",
+            borderColor: "#a371f7",
+            borderWidth: 1,
+            borderRadius: 4,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: "#1c2128", borderColor: "#30363d", borderWidth: 1,
+              titleColor: "#e1e4e8", bodyColor: "#c9d1d9",
+              padding: 12, cornerRadius: 8,
+            },
+          },
+          scales: {
+            x: {
+              grid: { display: false },
+              ticks: { color: "#8b949e", font: { size: 10 } },
+            },
+            y: {
+              beginAtZero: true,
+              grid: { color: "rgba(33,38,45,0.5)", drawBorder: false },
+              ticks: { color: "#8b949e", font: { size: 10 } },
+            },
+          },
+        },
+      });
+    } catch (e) {
+      console.error("latency:", e);
+    }
   }
 
   // ── API Keys table ──
@@ -415,6 +780,88 @@
     } catch (e) { /* admin API may not be enabled */ }
   }
 
+  // ── Budget Status gauges ──
+  async function loadBudgetStatus() {
+    try {
+      const statuses = await adminFetch("/api/admin/budgets/status");
+      const container = $("#budget-status-body");
+      container.innerHTML = "";
+      if (!statuses || !statuses.length) {
+        container.innerHTML = '<div style="color:#8b949e;font-size:0.85rem;padding:0.5rem">No budget data</div>';
+        return;
+      }
+      for (const s of statuses) {
+        var item = document.createElement("div");
+        item.className = "budget-item";
+
+        var dailyPct = s.daily_limit > 0 ? Math.min((s.daily_spent / s.daily_limit) * 100, 100) : 0;
+        var monthlyPct = s.monthly_limit > 0 ? Math.min((s.monthly_spent / s.monthly_limit) * 100, 100) : 0;
+
+        var dailyClass = "budget-fill";
+        if (dailyPct > 90) dailyClass += " budget-fill-danger";
+        else if (dailyPct > 70) dailyClass += " budget-fill-warn";
+
+        var monthlyClass = "budget-fill";
+        if (monthlyPct > 90) monthlyClass += " budget-fill-danger";
+        else if (monthlyPct > 70) monthlyClass += " budget-fill-warn";
+
+        var html = '<div class="budget-item-label"><span>' + esc(s.pattern) + '</span><span>' + esc(s.action) + '</span></div>';
+
+        if (s.daily_limit > 0) {
+          html += '<div class="budget-bar-label"><span>Daily</span><span>' + fmtCost(s.daily_spent) + ' / ' + fmtCost(s.daily_limit) + '</span></div>';
+          html += '<div class="budget-bar"><div class="' + dailyClass + '" style="width:' + dailyPct + '%"></div></div>';
+        }
+        if (s.monthly_limit > 0) {
+          html += '<div class="budget-bar-label"><span>Monthly</span><span>' + fmtCost(s.monthly_spent) + ' / ' + fmtCost(s.monthly_limit) + '</span></div>';
+          html += '<div class="budget-bar"><div class="' + monthlyClass + '" style="width:' + monthlyPct + '%"></div></div>';
+        }
+        if (s.daily_limit <= 0 && s.monthly_limit <= 0) {
+          html += '<div class="budget-bar-label"><span>Spend: ' + fmtCost(s.daily_spent) + ' today / ' + fmtCost(s.monthly_spent) + ' month</span></div>';
+        }
+
+        item.innerHTML = html;
+        container.appendChild(item);
+      }
+    } catch (e) { /* admin API may not be enabled */ }
+  }
+
+  // ── Blocked Keys table ──
+  async function loadBlocked() {
+    try {
+      const patterns = await adminFetch("/api/admin/api-keys/blocked");
+      const tbody = $("#blocked-body");
+      tbody.innerHTML = "";
+      if (!patterns || !patterns.length) {
+        tbody.innerHTML = '<tr><td colspan="2" style="text-align:center;color:#8b949e">No blocked keys</td></tr>';
+        return;
+      }
+      for (const p of patterns) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td><code>${esc(p)}</code></td><td><button class="btn-delete" data-pattern="${esc(p)}">&#215;</button></td>`;
+        tbody.appendChild(tr);
+      }
+      for (const btn of tbody.querySelectorAll(".btn-delete")) {
+        btn.addEventListener("click", async () => {
+          await adminFetch("/api/admin/api-keys/block?pattern=" + encodeURIComponent(btn.dataset.pattern), { method: "DELETE" });
+          loadBlocked();
+        });
+      }
+    } catch (e) { /* admin API may not be enabled */ }
+  }
+
+  // Block key button
+  $("#block-btn").addEventListener("click", async () => {
+    var pattern = $("#block-pattern").value.trim();
+    if (!pattern) return;
+    await adminFetch("/api/admin/api-keys/block", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pattern: pattern }),
+    });
+    $("#block-pattern").value = "";
+    loadBlocked();
+  });
+
   // Add Rule button
   $("#add-rule-btn").addEventListener("click", async () => {
     const rule = {
@@ -432,6 +879,7 @@
     $("#rule-daily").value = "";
     $("#rule-monthly").value = "";
     loadRules();
+    loadBudgetStatus();
   });
 
   // Tenant filter
@@ -443,16 +891,35 @@
   function loadAll() {
     loadSummary();
     loadStats();
-    loadTimeseries();
+    if (currentTimeseriesTab === "cost") {
+      loadTimeseries();
+    } else {
+      loadTokenTimeseries();
+    }
     loadProviderChart();
+    loadAgentChart();
+    loadModelChart();
     loadCosts();
     loadExpensive();
-    loadSessions();
+    if (currentSessionTab === "active") {
+      loadSessions();
+    } else {
+      loadSessionHistory(parseInt(currentSessionTab, 10));
+    }
+    loadLatency();
     loadAPIKeys();
     loadRules();
+    loadBudgetStatus();
+    loadBlocked();
   }
 
-  $("#timeseries-hours").addEventListener("change", loadTimeseries);
+  $("#timeseries-hours").addEventListener("change", () => {
+    if (currentTimeseriesTab === "cost") {
+      loadTimeseries();
+    } else {
+      loadTokenTimeseries();
+    }
+  });
   $("#costs-group").addEventListener("change", loadCosts);
 
   loadAll();

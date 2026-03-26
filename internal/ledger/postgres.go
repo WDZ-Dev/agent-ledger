@@ -130,9 +130,9 @@ func (p *Postgres) QueryCosts(ctx context.Context, filter CostFilter) ([]CostEnt
 func (p *Postgres) QueryCostTimeseries(ctx context.Context, interval string, since, until time.Time, tenantID string) ([]TimeseriesPoint, error) {
 	bucket := "date_trunc('hour', timestamp)"
 	switch interval {
-	case "minute":
+	case "minute": //nolint:goconst
 		bucket = "date_trunc('minute', timestamp)"
-	case "day":
+	case "day": //nolint:goconst
 		bucket = "date_trunc('day', timestamp)"
 	}
 
@@ -334,6 +334,143 @@ func (p *Postgres) ListActiveSessions(ctx context.Context) ([]agent.Session, err
 		sessions = append(sessions, sess)
 	}
 	return sessions, rows.Err()
+}
+
+// QueryRecentSessions returns sessions within the time window, optionally filtered by status.
+func (p *Postgres) QueryRecentSessions(ctx context.Context, since, until time.Time, status string, limit int) ([]SessionRecord, error) {
+	where := "started_at >= $1 AND started_at <= $2"
+	args := []any{since.UTC(), until.UTC()}
+	if status != "" {
+		args = append(args, status)
+		where += fmt.Sprintf(" AND status = $%d", len(args))
+	}
+	args = append(args, limit)
+
+	q := fmt.Sprintf(`SELECT id, agent_id, user_id, task, started_at, ended_at, status, `+ //nolint:gosec // where clause built from trusted code, not user input
+		`call_count, total_cost_usd, total_tokens
+	FROM agent_sessions WHERE %s
+	ORDER BY started_at DESC LIMIT $%d`, where, len(args))
+
+	rows, err := p.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("querying recent sessions: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var records []SessionRecord
+	for rows.Next() {
+		var r SessionRecord
+		var endedAt sql.NullTime
+		if err := rows.Scan(&r.ID, &r.AgentID, &r.UserID, &r.Task,
+			&r.StartedAt, &endedAt, &r.Status,
+			&r.CallCount, &r.TotalCostUSD, &r.TotalTokens); err != nil {
+			return nil, fmt.Errorf("scanning session record: %w", err)
+		}
+		if endedAt.Valid {
+			r.EndedAt = &endedAt.Time
+		}
+		records = append(records, r)
+	}
+	return records, rows.Err()
+}
+
+// QueryLatencyPercentiles returns P50/P90/P99 latency and a histogram distribution.
+func (p *Postgres) QueryLatencyPercentiles(ctx context.Context, since, until time.Time, tenantID string) (*LatencyStats, error) {
+	where := "timestamp >= $1 AND timestamp <= $2"
+	args := []any{since.UTC(), until.UTC()}
+	if tenantID != "" {
+		args = append(args, tenantID)
+		where += fmt.Sprintf(" AND tenant_id = $%d", len(args))
+	}
+
+	// Bucket distribution.
+	bucketQ := fmt.Sprintf(`SELECT
+		CASE
+			WHEN duration_ms < 100 THEN '<100ms'
+			WHEN duration_ms < 500 THEN '100-500ms'
+			WHEN duration_ms < 1000 THEN '500ms-1s'
+			WHEN duration_ms < 3000 THEN '1-3s'
+			WHEN duration_ms < 10000 THEN '3-10s'
+			ELSE '>10s'
+		END as bucket,
+		COUNT(*) as cnt
+	FROM usage_records WHERE %s
+	GROUP BY bucket
+	ORDER BY MIN(duration_ms) ASC`, where)
+
+	rows, err := p.db.QueryContext(ctx, bucketQ, args...)
+	if err != nil {
+		return nil, fmt.Errorf("querying latency buckets: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var buckets []LatencyBucket
+	for rows.Next() {
+		var b LatencyBucket
+		if err := rows.Scan(&b.Label, &b.Count); err != nil {
+			return nil, fmt.Errorf("scanning latency bucket: %w", err)
+		}
+		buckets = append(buckets, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Percentiles using native PostgreSQL PERCENTILE_CONT.
+	percQ := fmt.Sprintf(`SELECT
+		COALESCE(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms), 0),
+		COALESCE(PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY duration_ms), 0),
+		COALESCE(PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY duration_ms), 0)
+	FROM usage_records WHERE %s AND duration_ms > 0`, where)
+
+	stats := &LatencyStats{Buckets: buckets}
+	if err := p.db.QueryRowContext(ctx, percQ, args...).Scan(&stats.P50, &stats.P90, &stats.P99); err != nil {
+		return nil, fmt.Errorf("querying latency percentiles: %w", err)
+	}
+	return stats, nil
+}
+
+// QueryTokenTimeseries returns token counts bucketed by time interval.
+func (p *Postgres) QueryTokenTimeseries(ctx context.Context, interval string, since, until time.Time, tenantID string) ([]TokenTimeseriesPoint, error) {
+	bucket := "date_trunc('hour', timestamp)"
+	switch interval {
+	case "minute": //nolint:goconst
+		bucket = "date_trunc('minute', timestamp)"
+	case "day": //nolint:goconst
+		bucket = "date_trunc('day', timestamp)"
+	}
+
+	where := "timestamp >= $1 AND timestamp <= $2" //nolint:goconst
+	args := []any{since.UTC(), until.UTC()}
+	if tenantID != "" {
+		args = append(args, tenantID)
+		where += fmt.Sprintf(" AND tenant_id = $%d", len(args))
+	}
+
+	q := fmt.Sprintf(`SELECT
+		%s as bucket,
+		COALESCE(SUM(input_tokens), 0),
+		COALESCE(SUM(output_tokens), 0)
+	FROM usage_records
+	WHERE %s
+	GROUP BY bucket
+	ORDER BY bucket ASC`, bucket, where)
+
+	rows, err := p.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("querying token timeseries: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var points []TokenTimeseriesPoint
+	for rows.Next() {
+		var pt TokenTimeseriesPoint
+		if err := rows.Scan(&pt.Timestamp, &pt.InputTokens, &pt.OutputTokens); err != nil {
+			return nil, fmt.Errorf("scanning token timeseries point: %w", err)
+		}
+		points = append(points, pt)
+	}
+	return points, rows.Err()
 }
 
 // DB returns the underlying database connection for use by other packages

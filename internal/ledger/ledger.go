@@ -31,6 +31,15 @@ type Ledger interface {
 	// QueryErrorStats returns error counts and average metrics for the time window.
 	QueryErrorStats(ctx context.Context, since, until time.Time, tenantID string) (*ErrorStats, error)
 
+	// QueryRecentSessions returns sessions within the time window, optionally filtered by status.
+	QueryRecentSessions(ctx context.Context, since, until time.Time, status string, limit int) ([]SessionRecord, error)
+
+	// QueryLatencyPercentiles returns P50/P90/P99 latency and a histogram distribution.
+	QueryLatencyPercentiles(ctx context.Context, since, until time.Time, tenantID string) (*LatencyStats, error)
+
+	// QueryTokenTimeseries returns token counts bucketed by time interval.
+	QueryTokenTimeseries(ctx context.Context, interval string, since, until time.Time, tenantID string) ([]TokenTimeseriesPoint, error)
+
 	// Close releases any held resources.
 	Close() error
 }

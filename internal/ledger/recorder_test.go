@@ -39,6 +39,15 @@ func (c *countingLedger) QueryRecentExpensive(_ context.Context, _, _ time.Time,
 func (c *countingLedger) QueryErrorStats(_ context.Context, _, _ time.Time, _ string) (*ErrorStats, error) {
 	return &ErrorStats{}, nil
 }
+func (c *countingLedger) QueryRecentSessions(_ context.Context, _, _ time.Time, _ string, _ int) ([]SessionRecord, error) {
+	return nil, nil
+}
+func (c *countingLedger) QueryLatencyPercentiles(_ context.Context, _, _ time.Time, _ string) (*LatencyStats, error) {
+	return &LatencyStats{}, nil
+}
+func (c *countingLedger) QueryTokenTimeseries(_ context.Context, _ string, _, _ time.Time, _ string) ([]TokenTimeseriesPoint, error) {
+	return nil, nil
+}
 
 func (c *countingLedger) Close() error { return nil }
 
@@ -67,6 +76,15 @@ func (f *failingLedger) QueryRecentExpensive(_ context.Context, _, _ time.Time, 
 }
 func (f *failingLedger) QueryErrorStats(_ context.Context, _, _ time.Time, _ string) (*ErrorStats, error) {
 	return &ErrorStats{}, nil
+}
+func (f *failingLedger) QueryRecentSessions(_ context.Context, _, _ time.Time, _ string, _ int) ([]SessionRecord, error) {
+	return nil, nil
+}
+func (f *failingLedger) QueryLatencyPercentiles(_ context.Context, _, _ time.Time, _ string) (*LatencyStats, error) {
+	return &LatencyStats{}, nil
+}
+func (f *failingLedger) QueryTokenTimeseries(_ context.Context, _ string, _, _ time.Time, _ string) ([]TokenTimeseriesPoint, error) {
+	return nil, nil
 }
 
 func (f *failingLedger) Close() error { return nil }

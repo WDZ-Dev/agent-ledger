@@ -342,6 +342,179 @@ func (s *SQLite) ListActiveSessions(ctx context.Context) ([]agent.Session, error
 	return sessions, rows.Err()
 }
 
+// QueryRecentSessions returns sessions within the time window, optionally filtered by status.
+func (s *SQLite) QueryRecentSessions(ctx context.Context, since, until time.Time, status string, limit int) ([]SessionRecord, error) {
+	where := "started_at >= ? AND started_at <= ?"
+	args := []any{since.UTC(), until.UTC()}
+	if status != "" {
+		where += " AND status = ?"
+		args = append(args, status)
+	}
+	args = append(args, limit)
+
+	q := fmt.Sprintf(`SELECT id, agent_id, user_id, task, started_at, ended_at, status,
+		call_count, total_cost_usd, total_tokens
+	FROM agent_sessions WHERE %s
+	ORDER BY started_at DESC LIMIT ?`, where)
+
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("querying recent sessions: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var records []SessionRecord
+	for rows.Next() {
+		var r SessionRecord
+		var endedAt sql.NullTime
+		if err := rows.Scan(&r.ID, &r.AgentID, &r.UserID, &r.Task,
+			&r.StartedAt, &endedAt, &r.Status,
+			&r.CallCount, &r.TotalCostUSD, &r.TotalTokens); err != nil {
+			return nil, fmt.Errorf("scanning session record: %w", err)
+		}
+		if endedAt.Valid {
+			r.EndedAt = &endedAt.Time
+		}
+		records = append(records, r)
+	}
+	return records, rows.Err()
+}
+
+// QueryLatencyPercentiles returns P50/P90/P99 latency and a histogram distribution.
+func (s *SQLite) QueryLatencyPercentiles(ctx context.Context, since, until time.Time, tenantID string) (*LatencyStats, error) {
+	where := "timestamp >= ? AND timestamp <= ?" //nolint:goconst
+	args := []any{since.UTC(), until.UTC()}
+	if tenantID != "" {
+		where += " AND tenant_id = ?" //nolint:goconst
+		args = append(args, tenantID)
+	}
+
+	// Bucket distribution.
+	bucketQ := fmt.Sprintf(`SELECT
+		CASE
+			WHEN duration_ms < 100 THEN '<100ms'
+			WHEN duration_ms < 500 THEN '100-500ms'
+			WHEN duration_ms < 1000 THEN '500ms-1s'
+			WHEN duration_ms < 3000 THEN '1-3s'
+			WHEN duration_ms < 10000 THEN '3-10s'
+			ELSE '>10s'
+		END as bucket,
+		COUNT(*) as cnt
+	FROM usage_records WHERE %s
+	GROUP BY bucket
+	ORDER BY MIN(duration_ms) ASC`, where)
+
+	rows, err := s.db.QueryContext(ctx, bucketQ, args...)
+	if err != nil {
+		return nil, fmt.Errorf("querying latency buckets: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var buckets []LatencyBucket
+	for rows.Next() {
+		var b LatencyBucket
+		if scanErr := rows.Scan(&b.Label, &b.Count); scanErr != nil {
+			return nil, fmt.Errorf("scanning latency bucket: %w", scanErr)
+		}
+		buckets = append(buckets, b)
+	}
+	if rowsErr := rows.Err(); rowsErr != nil {
+		return nil, rowsErr
+	}
+
+	// Percentiles: fetch sorted durations and compute in Go.
+	percQ := fmt.Sprintf(`SELECT duration_ms FROM usage_records
+		WHERE %s AND duration_ms > 0
+		ORDER BY duration_ms ASC LIMIT 10000`, where)
+
+	pRows, err := s.db.QueryContext(ctx, percQ, args...)
+	if err != nil {
+		return nil, fmt.Errorf("querying latency percentiles: %w", err)
+	}
+	defer func() { _ = pRows.Close() }()
+
+	var durations []float64
+	for pRows.Next() {
+		var d float64
+		if scanErr := pRows.Scan(&d); scanErr != nil {
+			return nil, fmt.Errorf("scanning duration: %w", scanErr)
+		}
+		durations = append(durations, d)
+	}
+	if rowsErr := pRows.Err(); rowsErr != nil {
+		return nil, err
+	}
+
+	stats := &LatencyStats{Buckets: buckets}
+	if len(durations) > 0 {
+		stats.P50 = percentile(durations, 0.50)
+		stats.P90 = percentile(durations, 0.90)
+		stats.P99 = percentile(durations, 0.99)
+	}
+	return stats, nil
+}
+
+// QueryTokenTimeseries returns token counts bucketed by time interval.
+func (s *SQLite) QueryTokenTimeseries(ctx context.Context, interval string, since, until time.Time, tenantID string) ([]TokenTimeseriesPoint, error) {
+	bucket := "strftime('%Y-%m-%d %H:00:00', substr(timestamp, 1, 19))"
+	switch interval {
+	case "minute": //nolint:goconst
+		bucket = "strftime('%Y-%m-%d %H:%M:00', substr(timestamp, 1, 19))"
+	case "day": //nolint:goconst
+		bucket = "strftime('%Y-%m-%d 00:00:00', substr(timestamp, 1, 19))"
+	}
+
+	where := "timestamp >= ? AND timestamp <= ?" //nolint:goconst
+	args := []any{since.UTC(), until.UTC()}
+	if tenantID != "" {
+		where += " AND tenant_id = ?" //nolint:goconst
+		args = append(args, tenantID)
+	}
+
+	q := fmt.Sprintf(`SELECT
+		%s as bucket,
+		COALESCE(SUM(input_tokens), 0),
+		COALESCE(SUM(output_tokens), 0)
+	FROM usage_records
+	WHERE %s
+	GROUP BY bucket
+	ORDER BY bucket ASC`, bucket, where)
+
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("querying token timeseries: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var points []TokenTimeseriesPoint
+	for rows.Next() {
+		var p TokenTimeseriesPoint
+		var ts string
+		if err := rows.Scan(&ts, &p.InputTokens, &p.OutputTokens); err != nil {
+			return nil, fmt.Errorf("scanning token timeseries point: %w", err)
+		}
+		p.Timestamp, _ = time.Parse("2006-01-02 15:04:05", ts)
+		points = append(points, p)
+	}
+	return points, rows.Err()
+}
+
+// percentile computes the p-th percentile from a sorted slice of float64 values.
+func percentile(sorted []float64, p float64) float64 {
+	n := len(sorted)
+	if n == 0 {
+		return 0
+	}
+	idx := p * float64(n-1)
+	lower := int(idx)
+	upper := lower + 1
+	if upper >= n {
+		return sorted[n-1]
+	}
+	frac := idx - float64(lower)
+	return sorted[lower]*(1-frac) + sorted[upper]*frac
+}
+
 // DB returns the underlying database connection for use by other packages
 // (e.g., admin config store).
 func (s *SQLite) DB() *sql.DB {

@@ -73,3 +73,38 @@ type ErrorStats struct {
 	AvgDurationMS float64 `json:"avg_duration_ms"`
 	AvgCostPerReq float64 `json:"avg_cost_per_request"`
 }
+
+// SessionRecord represents a completed or active agent session for the dashboard API.
+type SessionRecord struct {
+	ID           string     `json:"id"`
+	AgentID      string     `json:"agent_id"`
+	UserID       string     `json:"user_id"`
+	Task         string     `json:"task"`
+	StartedAt    time.Time  `json:"started_at"`
+	EndedAt      *time.Time `json:"ended_at"`
+	Status       string     `json:"status"`
+	CallCount    int        `json:"call_count"`
+	TotalCostUSD float64    `json:"total_cost_usd"`
+	TotalTokens  int        `json:"total_tokens"`
+}
+
+// LatencyStats holds percentile and distribution data for request latencies.
+type LatencyStats struct {
+	P50     float64         `json:"p50_ms"`
+	P90     float64         `json:"p90_ms"`
+	P99     float64         `json:"p99_ms"`
+	Buckets []LatencyBucket `json:"buckets"`
+}
+
+// LatencyBucket represents a single bucket in a latency distribution histogram.
+type LatencyBucket struct {
+	Label string `json:"label"`
+	Count int    `json:"count"`
+}
+
+// TokenTimeseriesPoint represents a single time-bucketed token usage data point.
+type TokenTimeseriesPoint struct {
+	Timestamp    time.Time `json:"Timestamp"`
+	InputTokens  int64     `json:"InputTokens"`
+	OutputTokens int64     `json:"OutputTokens"`
+}
