@@ -134,9 +134,9 @@ func (s *SQLite) QueryCostTimeseries(ctx context.Context, interval string, since
 	// but strftime only parses ISO8601. Use substr to extract the datetime portion.
 	bucket := "strftime('%Y-%m-%d %H:00:00', substr(timestamp, 1, 19))"
 	switch interval {
-	case "minute":
+	case "minute": //nolint:goconst
 		bucket = "strftime('%Y-%m-%d %H:%M:00', substr(timestamp, 1, 19))"
-	case "day":
+	case "day": //nolint:goconst
 		bucket = "strftime('%Y-%m-%d 00:00:00', substr(timestamp, 1, 19))"
 	}
 
