@@ -9,28 +9,8 @@
   --md-typeset-a-color: #3fb950;
 }
 
-/* ── Hide MkDocs chrome ── */
-.md-sidebar,
-.md-tabs,
-.md-search,
-.md-header,
-.md-footer {
-  display: none !important;
-}
-
 .md-main__inner {
   margin-top: 0;
-}
-
-.md-content {
-  max-width: 100%;
-  margin: 0;
-  padding: 0;
-}
-
-.md-content__inner {
-  margin: 0;
-  padding: 0;
 }
 
 /* ── Typography ── */
@@ -79,91 +59,6 @@
   line-height: 1.7;
   max-width: 600px;
   margin: 1rem auto 2.5rem;
-}
-
-/* ── Waitlist form ── */
-.al-waitlist-form {
-  margin: 2rem auto 0;
-  max-width: 480px;
-}
-
-.al-form {
-  display: flex;
-  gap: 0.5rem;
-  justify-content: center;
-}
-
-.al-input {
-  flex: 1;
-  padding: 0.8rem 1rem;
-  font-size: 1rem;
-  font-family: "Inter", sans-serif;
-  background: #111820;
-  border: 1px solid #30363d;
-  border-radius: 8px;
-  color: #e6edf3;
-  outline: none;
-  transition: border-color 0.2s;
-}
-
-.al-input:focus {
-  border-color: #3fb950;
-}
-
-.al-input::placeholder {
-  color: #484f58;
-}
-
-.al-btn {
-  padding: 0.8rem 1.5rem;
-  font-size: 0.95rem;
-  font-family: "Inter", sans-serif;
-  font-weight: 600;
-  background: #3fb950;
-  color: #0a0e14;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.2s, transform 0.1s;
-}
-
-.al-btn:hover {
-  background: #56d364;
-}
-
-.al-btn:active {
-  transform: scale(0.98);
-}
-
-.al-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.8;
-}
-
-.al-btn--success {
-  background: #238636;
-  color: #e6edf3;
-}
-
-.al-btn--success:hover {
-  background: #238636;
-}
-
-.al-btn--error {
-  background: #da3633;
-  color: #e6edf3;
-}
-
-.al-btn--error:hover {
-  background: #da3633;
-}
-
-.al-form-note {
-  text-align: center;
-  font-size: 0.8rem;
-  color: #484f58;
-  margin-top: 0.75rem;
 }
 
 /* ── Divider ── */
@@ -241,60 +136,6 @@
   margin: 0;
 }
 
-/* ── OpenClaw use case ── */
-.al-usecase {
-  text-align: center;
-}
-
-.al-usecase h3 {
-  color: #e6edf3;
-  font-size: 1.3rem;
-  margin-bottom: 1rem;
-}
-
-.al-usecase > p {
-  color: #8b949e;
-  font-size: 1rem;
-  line-height: 1.7;
-  max-width: 600px;
-  margin: 0 auto 2rem;
-}
-
-.al-usecase-steps {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 1.5rem;
-  text-align: left;
-}
-
-.al-usecase-step {
-  padding: 1.25rem;
-  background: #111820;
-  border: 1px solid #1c2129;
-  border-radius: 12px;
-}
-
-.al-usecase-step p strong {
-  color: #3fb950;
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.85rem;
-}
-
-.al-usecase-step pre {
-  margin: 0.75rem 0 0;
-  font-size: 0.8rem;
-}
-
-.al-usecase-step code {
-  font-size: 0.8rem;
-}
-
-@media (max-width: 768px) {
-  .al-usecase-steps {
-    grid-template-columns: 1fr;
-  }
-}
-
 /* ── How it works ── */
 .al-how {
   text-align: center;
@@ -327,17 +168,48 @@
   margin-bottom: 1.5rem;
 }
 
-.al-bottom-cta .al-form {
+.al-bottom-cta pre {
+  text-align: left;
   max-width: 480px;
-  margin: 0 auto;
+  margin: 0 auto 1rem;
 }
 
-/* ── Footer ── */
-.al-footer {
-  text-align: center;
-  padding: 2rem 0 1rem;
-  color: #30363d;
-  font-size: 0.8rem;
+.al-bottom-cta > p {
+  color: #8b949e;
+  margin-bottom: 1.5rem;
+}
+
+/* ── CTA buttons ── */
+.al-btn {
+  display: inline-block;
+  padding: 0.7rem 1.5rem;
+  font-size: 0.95rem;
+  font-family: "Inter", sans-serif;
+  font-weight: 600;
+  background: #3fb950;
+  color: #0a0e14 !important;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none !important;
+  transition: background 0.2s, transform 0.1s;
+  margin: 0.25rem;
+}
+
+.al-btn:hover {
+  background: #56d364;
+}
+
+.al-btn--secondary {
+  background: transparent;
+  color: #c9d1d9 !important;
+  border: 1px solid #30363d;
+}
+
+.al-btn--secondary:hover {
+  background: #161b22;
+  border-color: #8b949e;
 }
 
 /* ── Responsive ── */
@@ -356,14 +228,6 @@
 
   .al-stats {
     grid-template-columns: repeat(2, 1fr);
-  }
-
-  .al-form {
-    flex-direction: column;
-  }
-
-  .al-btn {
-    width: 100%;
   }
 }
 
