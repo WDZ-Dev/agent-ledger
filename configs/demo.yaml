@@ -1,0 +1,41 @@
+listen: ":8787"
+
+providers:
+  openai:
+    upstream: "https://api.openai.com"
+    enabled: true
+  anthropic:
+    upstream: "https://api.anthropic.com"
+    enabled: true
+
+storage:
+  driver: "sqlite"
+  dsn: "data/agentledger.db"
+
+log:
+  level: "info"
+  format: "text"
+
+recording:
+  buffer_size: 10000
+  workers: 4
+
+agent:
+  session_timeout_mins: 30
+  loop_threshold: 20
+  loop_window_mins: 5
+  loop_action: "warn"
+  ghost_max_age_mins: 60
+  ghost_min_calls: 50
+  ghost_min_cost_usd: 1.0
+
+admin:
+  enabled: true
+  token: "demo-admin-token"
+
+budgets:
+  default:
+    daily_limit_usd: 50.0
+    monthly_limit_usd: 500.0
+    soft_limit_pct: 0.8
+    action: "block"
