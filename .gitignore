@@ -44,3 +44,4 @@ build/output/
 # Node (dashboard)
 web/node_modules/
 web/dist/
+CLAUDE.md
