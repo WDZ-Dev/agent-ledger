@@ -53,7 +53,11 @@
 
   async function adminFetch(url, opts = {}) {
     if (!adminToken) return null;
-    opts.headers = { ...opts.headers, Authorization: "Bearer " + adminToken };
+    opts.headers = {
+      ...opts.headers,
+      Authorization: "Bearer " + adminToken,
+      "X-Requested-With": "XMLHttpRequest",
+    };
     const resp = await fetch(url, opts);
     if (!resp.ok) return null;
     return resp.json();

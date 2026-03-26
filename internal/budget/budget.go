@@ -58,6 +58,10 @@ type Manager struct {
 	logger   *slog.Logger
 	onWarn   func(ctx context.Context, apiKeyHash string, result Result)
 	onBlock  func(ctx context.Context, apiKeyHash string, result Result)
+
+	mu     sync.RWMutex // protects config.Rules
+	done   chan struct{}
+	closed sync.Once
 }
 
 type spendEntry struct {
@@ -70,12 +74,22 @@ const defaultCacheTTL = 30 * time.Second
 
 // NewManager creates a budget enforcement manager.
 func NewManager(l ledger.Ledger, cfg Config, logger *slog.Logger) *Manager {
-	return &Manager{
+	m := &Manager{
 		ledger:   l,
 		config:   cfg,
 		cacheTTL: defaultCacheTTL,
 		logger:   logger,
+		done:     make(chan struct{}),
 	}
+	go m.cacheCleanupLoop()
+	return m
+}
+
+// Close stops the background cache cleanup goroutine.
+func (m *Manager) Close() {
+	m.closed.Do(func() {
+		close(m.done)
+	})
 }
 
 // SetCallbacks configures alert callbacks for budget events.
@@ -90,9 +104,14 @@ func (m *Manager) SetCallbacks(
 // UpdateRules replaces the per-key rules at runtime (hot-reload from admin API).
 // The default rule is not changed.
 func (m *Manager) UpdateRules(rules []Rule) {
+	m.mu.Lock()
 	m.config.Rules = rules
+	m.mu.Unlock()
 	// Invalidate cache so new rules take effect immediately.
-	m.cache = sync.Map{}
+	m.cache.Range(func(key, _ any) bool {
+		m.cache.Delete(key)
+		return true
+	})
 }
 
 // Enabled returns true if any budget limits are configured.
@@ -100,7 +119,10 @@ func (m *Manager) Enabled() bool {
 	if m.config.Default.DailyLimitUSD > 0 || m.config.Default.MonthlyLimitUSD > 0 {
 		return true
 	}
-	return len(m.config.Rules) > 0
+	m.mu.RLock()
+	n := len(m.config.Rules)
+	m.mu.RUnlock()
+	return n > 0
 }
 
 // Check evaluates budget for a request. rawKey is used for rule pattern
@@ -198,7 +220,12 @@ func (m *Manager) evaluateRule(rule Rule, daily, monthly float64) Result {
 // matchRule returns the most specific rule matching the raw API key,
 // falling back to the default rule.
 func (m *Manager) matchRule(rawKey string) Rule {
-	for _, r := range m.config.Rules {
+	m.mu.RLock()
+	rules := make([]Rule, len(m.config.Rules))
+	copy(rules, m.config.Rules)
+	m.mu.RUnlock()
+
+	for _, r := range rules {
 		if matched, _ := filepath.Match(r.APIKeyPattern, rawKey); matched {
 			return m.mergeWithDefault(r)
 		}
@@ -225,7 +252,12 @@ func (m *Manager) mergeWithDefault(r Rule) Rule {
 
 // matchTenantRule finds a rule that targets a specific tenant (no API key pattern).
 func (m *Manager) matchTenantRule(tenantID string) *Rule {
-	for _, r := range m.config.Rules {
+	m.mu.RLock()
+	rules := make([]Rule, len(m.config.Rules))
+	copy(rules, m.config.Rules)
+	m.mu.RUnlock()
+
+	for _, r := range rules {
 		if r.TenantID == tenantID && r.APIKeyPattern == "" {
 			merged := m.mergeWithDefault(r)
 			return &merged
@@ -299,4 +331,29 @@ func (m *Manager) getSpend(ctx context.Context, apiKeyHash string) (daily, month
 	})
 
 	return daily, monthly
+}
+
+func (m *Manager) cacheCleanupLoop() {
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			m.evictStaleCache()
+		case <-m.done:
+			return
+		}
+	}
+}
+
+func (m *Manager) evictStaleCache() {
+	now := time.Now()
+	m.cache.Range(func(key, value any) bool {
+		e := value.(*spendEntry)
+		if now.Sub(e.fetched) > m.cacheTTL {
+			m.cache.Delete(key)
+		}
+		return true
+	})
 }

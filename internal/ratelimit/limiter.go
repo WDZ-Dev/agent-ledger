@@ -26,6 +26,9 @@ type Limiter struct {
 	// key -> window start -> count
 	minuteCounters map[string]*slidingWindow
 	hourCounters   map[string]*slidingWindow
+
+	done   chan struct{}
+	closed sync.Once
 }
 
 type slidingWindow struct {
@@ -35,11 +38,21 @@ type slidingWindow struct {
 
 // New creates a rate limiter from configuration.
 func New(cfg Config) *Limiter {
-	return &Limiter{
+	l := &Limiter{
 		config:         cfg,
 		minuteCounters: make(map[string]*slidingWindow),
 		hourCounters:   make(map[string]*slidingWindow),
+		done:           make(chan struct{}),
 	}
+	go l.cleanupLoop()
+	return l
+}
+
+// Close stops the background cleanup goroutine.
+func (l *Limiter) Close() {
+	l.closed.Do(func() {
+		close(l.done)
+	})
 }
 
 // Enabled returns true if any rate limits are configured.
@@ -120,4 +133,35 @@ func (l *Limiter) mergeWithDefault(r Rule) Rule {
 		r.RequestsPerHour = l.config.Default.RequestsPerHour
 	}
 	return r
+}
+
+func (l *Limiter) cleanupLoop() {
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			l.evictExpired()
+		case <-l.done:
+			return
+		}
+	}
+}
+
+func (l *Limiter) evictExpired() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	now := time.Now()
+	for key, w := range l.minuteCounters {
+		if now.After(w.windowEnd) {
+			delete(l.minuteCounters, key)
+		}
+	}
+	for key, w := range l.hourCounters {
+		if now.After(w.windowEnd) {
+			delete(l.hourCounters, key)
+		}
+	}
 }

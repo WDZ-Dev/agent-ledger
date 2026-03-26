@@ -7,6 +7,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -46,6 +48,13 @@ func (p *HTTPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Path sanitization: reject path traversal attempts.
+	if strings.Contains(r.URL.Path, "..") {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+	cleanPath := path.Clean(r.URL.Path)
+
 	// Read request body with size limit.
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
 	body, err := io.ReadAll(r.Body)
@@ -71,13 +80,20 @@ func (p *HTTPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Intercept outbound request.
 	interceptor.HandleMessage(body, true, agentCtx)
 
-	// Build upstream request.
-	upstreamURL := p.upstream + r.URL.Path
-	if r.URL.RawQuery != "" {
-		upstreamURL += "?" + r.URL.RawQuery
+	// Build upstream URL safely using url.Parse + path.Join.
+	upstreamBase, err := url.Parse(p.upstream)
+	if err != nil {
+		p.logger.Error("failed to parse upstream URL", "error", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
 	}
+	upstreamBase.Path = path.Join(upstreamBase.Path, cleanPath)
+	if r.URL.RawQuery != "" {
+		upstreamBase.RawQuery = r.URL.RawQuery
+	}
+	upstreamURL := upstreamBase.String()
 
-	upReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, upstreamURL, bytes.NewReader(body)) //nolint:gosec // upstream URL is from trusted server config
+	upReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, upstreamURL, bytes.NewReader(body))
 	if err != nil {
 		p.logger.Error("failed to create upstream request", "error", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)

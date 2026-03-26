@@ -5,6 +5,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -32,6 +34,10 @@ func setupTestDB(t *testing.T) *sql.DB {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	return db
+}
+
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
 func TestStore_GetSetDelete(t *testing.T) {
@@ -127,7 +133,7 @@ func TestStore_ListAll(t *testing.T) {
 func TestHandler_RequiresAuth(t *testing.T) {
 	db := setupTestDB(t)
 	store := admin.NewStore(db)
-	handler := admin.NewHandler(store, nil, nil, "secret-token", nil)
+	handler := admin.NewHandler(store, nil, nil, "secret-token", nil, testLogger())
 
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
@@ -162,7 +168,7 @@ func TestHandler_RequiresAuth(t *testing.T) {
 func TestHandler_CRUDRules(t *testing.T) {
 	db := setupTestDB(t)
 	store := admin.NewStore(db)
-	handler := admin.NewHandler(store, nil, nil, "token", nil)
+	handler := admin.NewHandler(store, nil, nil, "token", nil, testLogger())
 
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
@@ -185,6 +191,7 @@ func TestHandler_CRUDRules(t *testing.T) {
 	body, _ := json.Marshal(rule)
 	req = httptest.NewRequest("POST", "/api/admin/budgets/rules", bytes.NewReader(body))
 	auth(req)
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusCreated {
@@ -205,6 +212,7 @@ func TestHandler_CRUDRules(t *testing.T) {
 	// Delete.
 	req = httptest.NewRequest("DELETE", "/api/admin/budgets/rules?pattern=sk-prod-*", nil)
 	auth(req)
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {
@@ -223,16 +231,55 @@ func TestHandler_CRUDRules(t *testing.T) {
 	}
 }
 
+func TestHandler_CSRFProtection(t *testing.T) {
+	db := setupTestDB(t)
+	store := admin.NewStore(db)
+	handler := admin.NewHandler(store, nil, nil, "token", nil, testLogger())
+
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+
+	// POST without X-Requested-With should be rejected.
+	rule := budget.Rule{APIKeyPattern: "sk-*", DailyLimitUSD: 10.0, Action: "block"}
+	body, _ := json.Marshal(rule)
+	req := httptest.NewRequest("POST", "/api/admin/budgets/rules", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 without X-Requested-With, got %d", rec.Code)
+	}
+
+	// DELETE without X-Requested-With should be rejected.
+	req = httptest.NewRequest("DELETE", "/api/admin/budgets/rules?pattern=sk-*", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 without X-Requested-With on DELETE, got %d", rec.Code)
+	}
+
+	// GET without X-Requested-With should be allowed.
+	req = httptest.NewRequest("GET", "/api/admin/budgets/rules", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for GET without X-Requested-With, got %d", rec.Code)
+	}
+}
+
 func TestHandler_DeleteNonExistent(t *testing.T) {
 	db := setupTestDB(t)
 	store := admin.NewStore(db)
-	handler := admin.NewHandler(store, nil, nil, "token", nil)
+	handler := admin.NewHandler(store, nil, nil, "token", nil, testLogger())
 
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
 
 	req := httptest.NewRequest("DELETE", "/api/admin/budgets/rules?pattern=nonexistent", nil)
 	req.Header.Set("Authorization", "Bearer token")
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
@@ -243,7 +290,7 @@ func TestHandler_DeleteNonExistent(t *testing.T) {
 func TestHandler_NoToken(t *testing.T) {
 	db := setupTestDB(t)
 	store := admin.NewStore(db)
-	handler := admin.NewHandler(store, nil, nil, "", nil)
+	handler := admin.NewHandler(store, nil, nil, "", nil, testLogger())
 
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)

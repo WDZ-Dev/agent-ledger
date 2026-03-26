@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"fmt"
 	"log/slog"
@@ -110,6 +111,7 @@ func runServe(configPath string) error {
 		})
 	}
 	budgetMgr = budget.NewManager(store, budgetCfg, logger)
+	defer budgetMgr.Close()
 	if budgetMgr.Enabled() {
 		logger.Info("budget enforcement enabled")
 	}
@@ -269,6 +271,7 @@ func runServe(configPath string) error {
 			})
 		}
 		limiter = ratelimit.New(rlCfg)
+		defer limiter.Close()
 		if limiter.Enabled() {
 			logger.Info("rate limiting enabled",
 				"default_rpm", rlCfg.Default.RequestsPerMinute,
@@ -323,29 +326,38 @@ func runServe(configPath string) error {
 
 	// Admin API (optional).
 	if adminStore != nil && cfg.Admin.Token != "" {
-		adminHandler := admin.NewHandler(adminStore, store, budgetMgr, cfg.Admin.Token, blocklist)
+		adminHandler := admin.NewHandler(adminStore, store, budgetMgr, cfg.Admin.Token, blocklist, logger)
 		adminHandler.RegisterRoutes(mux)
 		logger.Info("admin API enabled")
 	}
 
 	if cfg.Dashboard.Enabled {
-		dashHandler := dashboard.NewHandler(store, tracker)
+		dashHandler := dashboard.NewHandler(store, tracker, logger)
 		dashHandler.RegisterRoutes(mux)
 		mux.Handle("/", dashboard.StaticHandler())
 		logger.Info("dashboard enabled")
 	}
 
+	// Apply CORS middleware.
+	handler := corsMiddleware(cfg.CORS.AllowOrigins, mux)
+
 	srv := &http.Server{
 		Addr:              cfg.Listen,
-		Handler:           mux,
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	// Graceful shutdown
 	errCh := make(chan error, 1)
 	go func() {
-		logger.Info("proxy listening", "addr", cfg.Listen)
-		errCh <- srv.ListenAndServe()
+		if cfg.TLS.CertFile != "" && cfg.TLS.KeyFile != "" {
+			srv.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+			logger.Info("starting HTTPS server", "listen", cfg.Listen)
+			errCh <- srv.ListenAndServeTLS(cfg.TLS.CertFile, cfg.TLS.KeyFile)
+		} else {
+			logger.Info("starting HTTP server", "listen", cfg.Listen)
+			errCh <- srv.ListenAndServe()
+		}
 	}()
 
 	quit := make(chan os.Signal, 1)
@@ -370,6 +382,37 @@ func runServe(configPath string) error {
 
 	logger.Info("proxy stopped")
 	return nil
+}
+
+func corsMiddleware(origins []string, next http.Handler) http.Handler {
+	if len(origins) == 0 {
+		return next
+	}
+
+	allowed := make(map[string]bool, len(origins))
+	for _, o := range origins {
+		allowed[o] = true
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" && allowed[origin] {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		}
+
+		if r.Method == http.MethodOptions {
+			if origin != "" && allowed[origin] {
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Requested-With")
+				w.Header().Set("Access-Control-Max-Age", "86400")
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 func newLogger(cfg config.LogConfig) *slog.Logger {

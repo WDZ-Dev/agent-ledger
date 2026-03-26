@@ -164,6 +164,17 @@ recording:
 #   enabled: true
 #   token: "your-secret-admin-token"       # Bearer token for auth
 
+# CORS (optional — omit to use same-origin only)
+# cors:
+#   allow_origins:
+#     - "https://dashboard.example.com"
+#     - "https://admin.example.com"
+
+# TLS (optional — omit for plain HTTP)
+# tls:
+#   cert_file: "/path/to/cert.pem"
+#   key_file: "/path/to/key.pem"
+
 # MCP (Model Context Protocol) tool call metering (optional — omit to disable)
 # mcp:
 #   enabled: true                          # enable HTTP proxy for MCP servers

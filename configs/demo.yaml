@@ -31,6 +31,7 @@ agent:
 
 admin:
   enabled: true
+  # WARNING: Demo token only. Generate a real one: openssl rand -hex 32
   token: "demo-admin-token"
 
 budgets:

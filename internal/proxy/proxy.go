@@ -26,6 +26,11 @@ import (
 	"github.com/WDZ-Dev/agent-ledger/internal/tenant"
 )
 
+const (
+	maxRequestBodyBytes  = 10 << 20 // 10 MB
+	maxResponseBodyBytes = 50 << 20 // 50 MB
+)
+
 // context keys for passing data between Rewrite and ModifyResponse.
 type ctxKey int
 
@@ -113,9 +118,14 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Read request body for metadata extraction.
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		p.logger.Error("reading request body", "error", err)
+		if err.Error() == "http: request body too large" {
+			writeJSONError(w, http.StatusRequestEntityTooLarge, "request body too large")
+			return
+		}
 		writeJSONError(w, http.StatusBadRequest, "failed to read request body")
 		return
 	}
@@ -295,7 +305,7 @@ func (p *Proxy) modifyResponse(resp *http.Response) error {
 	}
 
 	// Non-streaming: read, parse, record, replace body.
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes))
 	_ = resp.Body.Close()
 	if err != nil {
 		p.logger.Error("reading response body", "error", err)
@@ -370,7 +380,7 @@ func (p *Proxy) modifyResponse(resp *http.Response) error {
 
 func (p *Proxy) errorHandler(w http.ResponseWriter, _ *http.Request, err error) {
 	p.logger.Error("proxy error", "error", err)
-	writeJSONError(w, http.StatusBadGateway, "upstream request failed: "+err.Error())
+	writeJSONError(w, http.StatusBadGateway, "upstream request failed")
 }
 
 func writeJSONError(w http.ResponseWriter, status int, msg string) {

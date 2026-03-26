@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -48,6 +49,7 @@ func newTestLogger() *slog.Logger {
 
 func TestBudgetAllowWhenNoLimits(t *testing.T) {
 	mgr := NewManager(&stubLedger{}, Config{}, newTestLogger())
+	defer mgr.Close()
 
 	if mgr.Enabled() {
 		t.Error("should not be enabled with no limits")
@@ -70,6 +72,7 @@ func TestBudgetAllowUnderLimit(t *testing.T) {
 		},
 	}
 	mgr := NewManager(store, cfg, newTestLogger())
+	defer mgr.Close()
 
 	if !mgr.Enabled() {
 		t.Fatal("should be enabled")
@@ -92,6 +95,7 @@ func TestBudgetWarnAtSoftLimit(t *testing.T) {
 		},
 	}
 	mgr := NewManager(store, cfg, newTestLogger())
+	defer mgr.Close()
 
 	result := mgr.Check(context.Background(), "sk-test-key", "hash123", "")
 	if result.Decision != Warn {
@@ -110,6 +114,7 @@ func TestBudgetBlockAtHardLimit(t *testing.T) {
 		},
 	}
 	mgr := NewManager(store, cfg, newTestLogger())
+	defer mgr.Close()
 
 	result := mgr.Check(context.Background(), "sk-test-key", "hash123", "")
 	if result.Decision != Block {
@@ -132,6 +137,7 @@ func TestBudgetWarnActionAtHardLimit(t *testing.T) {
 		},
 	}
 	mgr := NewManager(store, cfg, newTestLogger())
+	defer mgr.Close()
 
 	result := mgr.Check(context.Background(), "sk-test-key", "hash123", "")
 	if result.Decision != Warn {
@@ -149,6 +155,7 @@ func TestBudgetMonthlyBlock(t *testing.T) {
 		},
 	}
 	mgr := NewManager(store, cfg, newTestLogger())
+	defer mgr.Close()
 
 	result := mgr.Check(context.Background(), "sk-test-key", "hash123", "")
 	if result.Decision != Block {
@@ -172,6 +179,7 @@ func TestBudgetRulePatternMatch(t *testing.T) {
 		},
 	}
 	mgr := NewManager(store, cfg, newTestLogger())
+	defer mgr.Close()
 
 	// Dev key should be blocked at 8.0 > 5.0.
 	result := mgr.Check(context.Background(), "sk-proj-dev-abc123", "hash-dev", "")
@@ -204,6 +212,7 @@ func TestBudgetRuleMergesDefaults(t *testing.T) {
 		},
 	}
 	mgr := NewManager(store, cfg, newTestLogger())
+	defer mgr.Close()
 
 	// Should block because monthly 600 > default 500.
 	result := mgr.Check(context.Background(), "sk-proj-dev-abc", "hash-dev", "")
@@ -221,6 +230,7 @@ func TestBudgetSpendCaching(t *testing.T) {
 		},
 	}
 	mgr := NewManager(store, cfg, newTestLogger())
+	defer mgr.Close()
 
 	// First call populates cache.
 	mgr.Check(context.Background(), "sk-key", "hash1", "")
@@ -248,9 +258,71 @@ func TestBudgetEnabled(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mgr := NewManager(&stubLedger{}, tt.cfg, newTestLogger())
+			defer mgr.Close()
 			if got := mgr.Enabled(); got != tt.want {
 				t.Errorf("Enabled() = %v, want %v", got, tt.want)
 			}
 		})
 	}
+}
+
+func TestBudgetCacheEviction(t *testing.T) {
+	store := &stubLedger{dailySpend: 1.0, monthlySpend: 5.0}
+	cfg := Config{
+		Default: Rule{
+			DailyLimitUSD: 50.0,
+			Action:        "block",
+		},
+	}
+	mgr := NewManager(store, cfg, newTestLogger())
+	defer mgr.Close()
+
+	// Populate cache.
+	mgr.Check(context.Background(), "sk-key", "hash-evict", "")
+
+	// Mark the entry as stale by setting fetched time in the past.
+	mgr.cache.Store("hash-evict", &spendEntry{
+		daily:   1.0,
+		monthly: 5.0,
+		fetched: time.Now().Add(-2 * mgr.cacheTTL),
+	})
+
+	mgr.evictStaleCache()
+
+	// Entry should be gone.
+	_, exists := mgr.cache.Load("hash-evict")
+	if exists {
+		t.Error("expected stale cache entry to be evicted")
+	}
+}
+
+func TestUpdateRulesRace(t *testing.T) {
+	store := &stubLedger{dailySpend: 1.0, monthlySpend: 5.0}
+	cfg := Config{
+		Default: Rule{
+			DailyLimitUSD: 50.0,
+			Action:        "block",
+		},
+	}
+	mgr := NewManager(store, cfg, newTestLogger())
+	defer mgr.Close()
+
+	// Concurrently update rules and check budget to detect races.
+	var wg sync.WaitGroup
+
+	for i := 0; i < 10; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			mgr.UpdateRules([]Rule{
+				{APIKeyPattern: "sk-*", DailyLimitUSD: 10.0, Action: "block"},
+			})
+		}()
+		go func() {
+			defer wg.Done()
+			mgr.Check(context.Background(), "sk-test", "hash-race", "")
+		}()
+	}
+
+	wg.Wait()
 }
