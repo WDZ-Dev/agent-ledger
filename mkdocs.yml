@@ -27,7 +27,7 @@ extra_css:
 extra:
   generator: false
 
-copyright: "&copy; 2025-2026 WDZ-Dev &middot; Apache 2.0"
+copyright: "&copy; 2025-2026 WDZ-Dev &middot; Source Available License"
 
 markdown_extensions:
   - attr_list

@@ -10,7 +10,7 @@
 **Tagline:** "Know what your agents cost."
 **Subtitle:** Meter. Budget. Control.
 **One-liner:** Open-source reverse proxy that gives you real-time cost attribution, budget enforcement, and financial observability for AI agents — without changing a single line of code.
-**License:** Apache 2.0 (fully open-source, no paywalled features)
+**License:** Source Available (free for non-commercial use; commercial license required for enterprise)
 **Language:** Go — ships as a single binary with zero runtime dependencies
 **Repo:** https://github.com/WDZ-Dev/agent-ledger
 
@@ -260,7 +260,7 @@ client = openai.OpenAI(
 - **Sub-10ms** proxy overhead
 - **Zero** runtime dependencies
 - **Zero** code changes required
-- **100%** free and open-source (Apache 2.0)
+- **Free** for personal and non-commercial use
 - **6** platforms (Linux/macOS/Windows × amd64/arm64)
 
 ---

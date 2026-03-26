@@ -634,4 +634,4 @@ agent-ledger/
 
 ## License
 
-Apache 2.0
+Source Available — free for personal and non-commercial use. Commercial/enterprise use requires a license. See [LICENSE](LICENSE) for details, or contact [wdzdevgroup@gmail.com](mailto:wdzdevgroup@gmail.com) for pricing.

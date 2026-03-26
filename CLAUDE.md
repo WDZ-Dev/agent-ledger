@@ -10,7 +10,7 @@ A Go-based open-source reverse proxy that provides real-time cost attribution, b
 - **How:** `export OPENAI_BASE_URL=http://localhost:8787/v1` — zero code changes
 - **Why:** No tool tracks per-agent-execution costs, detects loops, or meters MCP calls
 - **Language:** Go — single binary, zero runtime dependencies
-- **License:** Apache 2.0
+- **License:** Source Available (free for non-commercial use; commercial license required for enterprise)
 - **Repo:** git@github.com:WDZ-Dev/agent-ledger.git
 
 ## Key Differentiators vs LiteLLM (Primary Competitor)
