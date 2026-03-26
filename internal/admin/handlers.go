@@ -43,6 +43,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/admin/api-keys/block", h.requireAuth(h.handleBlockKey))
 	mux.HandleFunc("DELETE /api/admin/api-keys/block", h.requireAuth(h.handleUnblockKey))
 	mux.HandleFunc("GET /api/admin/providers", h.requireAuth(h.handleListProviders))
+	mux.HandleFunc("GET /api/admin/budgets/status", h.requireAuth(h.handleBudgetStatus))
 }
 
 func (h *Handler) requireAuth(next http.HandlerFunc) http.HandlerFunc {
@@ -277,6 +278,75 @@ func (h *Handler) handleListProviders(w http.ResponseWriter, r *http.Request) {
 		providers = make(map[string]bool)
 	}
 	writeAdminJSON(w, providers)
+}
+
+// BudgetStatus shows current utilization of a budget rule.
+type BudgetStatus struct {
+	Pattern      string  `json:"pattern"`
+	DailySpent   float64 `json:"daily_spent"`
+	DailyLimit   float64 `json:"daily_limit"`
+	MonthlySpent float64 `json:"monthly_spent"`
+	MonthlyLimit float64 `json:"monthly_limit"`
+	Action       string  `json:"action"`
+}
+
+// handleBudgetStatus returns budget utilization for all configured rules.
+func (h *Handler) handleBudgetStatus(w http.ResponseWriter, r *http.Request) {
+	now := time.Now().UTC()
+	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+
+	var rules []budget.Rule
+	_ = h.store.GetJSON(r.Context(), "budget_rules", &rules)
+
+	var statuses []BudgetStatus
+
+	// Per-key rules: aggregate spend for each key matching the pattern.
+	// Since we can't glob-match key hashes, we use total spend grouped by key.
+	if h.ledger != nil {
+		dayEntries, _ := h.ledger.QueryCosts(r.Context(), ledger.CostFilter{
+			Since: dayStart, Until: now, GroupBy: "key",
+		})
+		monthEntries, _ := h.ledger.QueryCosts(r.Context(), ledger.CostFilter{
+			Since: monthStart, Until: now, GroupBy: "key",
+		})
+
+		// Calculate total spend across all keys for the default rule.
+		var totalDailySpend, totalMonthlySpend float64
+		for _, e := range dayEntries {
+			totalDailySpend += e.TotalCostUSD
+		}
+		for _, e := range monthEntries {
+			totalMonthlySpend += e.TotalCostUSD
+		}
+
+		// Per-rule entries.
+		for _, rule := range rules {
+			statuses = append(statuses, BudgetStatus{
+				Pattern:      rule.APIKeyPattern,
+				DailySpent:   totalDailySpend,
+				DailyLimit:   rule.DailyLimitUSD,
+				MonthlySpent: totalMonthlySpend,
+				MonthlyLimit: rule.MonthlyLimitUSD,
+				Action:       rule.Action,
+			})
+		}
+
+		// Default rule entry.
+		if h.budgetMgr != nil && h.budgetMgr.Enabled() {
+			statuses = append(statuses, BudgetStatus{
+				Pattern:      "(default)",
+				DailySpent:   totalDailySpend,
+				MonthlySpent: totalMonthlySpend,
+				Action:       "default",
+			})
+		}
+	}
+
+	if statuses == nil {
+		statuses = []BudgetStatus{}
+	}
+	writeAdminJSON(w, statuses)
 }
 
 func writeAdminJSON(w http.ResponseWriter, data any) {

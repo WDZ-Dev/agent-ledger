@@ -31,9 +31,12 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/dashboard/timeseries", h.handleTimeseries)
 	mux.HandleFunc("GET /api/dashboard/costs", h.handleCosts)
 	mux.HandleFunc("GET /api/dashboard/sessions", h.handleSessions)
+	mux.HandleFunc("GET /api/dashboard/sessions/history", h.handleSessionHistory)
 	mux.HandleFunc("GET /api/dashboard/export", h.handleExport)
 	mux.HandleFunc("GET /api/dashboard/expensive", h.handleExpensive)
 	mux.HandleFunc("GET /api/dashboard/stats", h.handleStats)
+	mux.HandleFunc("GET /api/dashboard/latency", h.handleLatency)
+	mux.HandleFunc("GET /api/dashboard/timeseries/tokens", h.handleTokenTimeseries)
 }
 
 func (h *Handler) handleSummary(w http.ResponseWriter, r *http.Request) {
@@ -269,6 +272,77 @@ func (h *Handler) handleStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, stats)
+}
+
+func (h *Handler) handleSessionHistory(w http.ResponseWriter, r *http.Request) {
+	hours, _ := strconv.Atoi(r.URL.Query().Get("hours"))
+	if hours <= 0 {
+		hours = 24
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 {
+		limit = 50
+	}
+	status := r.URL.Query().Get("status")
+
+	now := time.Now().UTC()
+	since := now.Add(-time.Duration(hours) * time.Hour)
+
+	records, err := h.ledger.QueryRecentSessions(r.Context(), since, now, status, limit)
+	if err != nil {
+		h.logger.Error("querying session history", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	if records == nil {
+		records = []ledger.SessionRecord{}
+	}
+	writeJSON(w, records)
+}
+
+func (h *Handler) handleLatency(w http.ResponseWriter, r *http.Request) {
+	hours, _ := strconv.Atoi(r.URL.Query().Get("hours"))
+	if hours <= 0 {
+		hours = 24
+	}
+	tenantID := r.URL.Query().Get("tenant")
+
+	now := time.Now().UTC()
+	since := now.Add(-time.Duration(hours) * time.Hour)
+
+	stats, err := h.ledger.QueryLatencyPercentiles(r.Context(), since, now, tenantID)
+	if err != nil {
+		h.logger.Error("querying latency", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	writeJSON(w, stats)
+}
+
+func (h *Handler) handleTokenTimeseries(w http.ResponseWriter, r *http.Request) {
+	interval := r.URL.Query().Get("interval")
+	if interval == "" {
+		interval = "hour"
+	}
+
+	hoursF, _ := strconv.ParseFloat(r.URL.Query().Get("hours"), 64)
+	if hoursF <= 0 {
+		hoursF = 24
+	}
+
+	tenantID := r.URL.Query().Get("tenant")
+
+	now := time.Now().UTC()
+	since := now.Add(-time.Duration(hoursF * float64(time.Hour)))
+
+	points, err := h.ledger.QueryTokenTimeseries(r.Context(), interval, since, now, tenantID)
+	if err != nil {
+		h.logger.Error("querying token timeseries", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	writeJSON(w, points)
 }
 
 func writeJSON(w http.ResponseWriter, data any) {

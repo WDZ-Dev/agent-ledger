@@ -41,6 +41,15 @@ func (s *stubLedger) QueryRecentExpensive(_ context.Context, _, _ time.Time, _ s
 func (s *stubLedger) QueryErrorStats(_ context.Context, _, _ time.Time, _ string) (*ledger.ErrorStats, error) {
 	return &ledger.ErrorStats{}, nil
 }
+func (s *stubLedger) QueryRecentSessions(_ context.Context, _, _ time.Time, _ string, _ int) ([]ledger.SessionRecord, error) {
+	return nil, nil
+}
+func (s *stubLedger) QueryLatencyPercentiles(_ context.Context, _, _ time.Time, _ string) (*ledger.LatencyStats, error) {
+	return &ledger.LatencyStats{}, nil
+}
+func (s *stubLedger) QueryTokenTimeseries(_ context.Context, _ string, _, _ time.Time, _ string) ([]ledger.TokenTimeseriesPoint, error) {
+	return nil, nil
+}
 func (s *stubLedger) Close() error { return nil }
 
 func newTestLogger() *slog.Logger {

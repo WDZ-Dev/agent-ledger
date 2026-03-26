@@ -14,8 +14,11 @@ import (
 )
 
 type stubLedger struct {
-	costs      []ledger.CostEntry
-	timeseries []ledger.TimeseriesPoint
+	costs           []ledger.CostEntry
+	timeseries      []ledger.TimeseriesPoint
+	sessions        []ledger.SessionRecord
+	latency         *ledger.LatencyStats
+	tokenTimeseries []ledger.TokenTimeseriesPoint
 }
 
 func (s *stubLedger) RecordUsage(_ context.Context, _ *ledger.UsageRecord) error { return nil }
@@ -36,6 +39,18 @@ func (s *stubLedger) QueryRecentExpensive(_ context.Context, _, _ time.Time, _ s
 }
 func (s *stubLedger) QueryErrorStats(_ context.Context, _, _ time.Time, _ string) (*ledger.ErrorStats, error) {
 	return &ledger.ErrorStats{}, nil
+}
+func (s *stubLedger) QueryRecentSessions(_ context.Context, _, _ time.Time, _ string, _ int) ([]ledger.SessionRecord, error) {
+	return s.sessions, nil
+}
+func (s *stubLedger) QueryLatencyPercentiles(_ context.Context, _, _ time.Time, _ string) (*ledger.LatencyStats, error) {
+	if s.latency != nil {
+		return s.latency, nil
+	}
+	return &ledger.LatencyStats{Buckets: []ledger.LatencyBucket{}}, nil
+}
+func (s *stubLedger) QueryTokenTimeseries(_ context.Context, _ string, _, _ time.Time, _ string) ([]ledger.TokenTimeseriesPoint, error) {
+	return s.tokenTimeseries, nil
 }
 func (s *stubLedger) Close() error { return nil }
 
@@ -205,6 +220,98 @@ func TestHandleSessionsWithoutTracker(t *testing.T) {
 
 	if w.Code != 200 {
 		t.Fatalf("status = %d, want 200", w.Code)
+	}
+}
+
+func TestHandleSessionHistory(t *testing.T) {
+	now := time.Now()
+	store := &stubLedger{
+		sessions: []ledger.SessionRecord{
+			{ID: "sess-1", AgentID: "agent-a", Status: "completed", StartedAt: now.Add(-time.Hour), CallCount: 5, TotalCostUSD: 0.50},
+		},
+	}
+	h := NewHandler(store, nil, testLogger())
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	req := httptest.NewRequest("GET", "/api/dashboard/sessions/history?hours=24&limit=10", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	var records []ledger.SessionRecord
+	if err := json.NewDecoder(w.Body).Decode(&records); err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 {
+		t.Errorf("expected 1 record, got %d", len(records))
+	}
+}
+
+func TestHandleLatency(t *testing.T) {
+	store := &stubLedger{
+		latency: &ledger.LatencyStats{
+			P50: 150, P90: 500, P99: 2000,
+			Buckets: []ledger.LatencyBucket{
+				{Label: "<100ms", Count: 10},
+				{Label: "100-500ms", Count: 20},
+			},
+		},
+	}
+	h := NewHandler(store, nil, testLogger())
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	req := httptest.NewRequest("GET", "/api/dashboard/latency?hours=24", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	var stats ledger.LatencyStats
+	if err := json.NewDecoder(w.Body).Decode(&stats); err != nil {
+		t.Fatal(err)
+	}
+	if stats.P50 != 150 {
+		t.Errorf("P50 = %v, want 150", stats.P50)
+	}
+	if len(stats.Buckets) != 2 {
+		t.Errorf("expected 2 buckets, got %d", len(stats.Buckets))
+	}
+}
+
+func TestHandleTokenTimeseries(t *testing.T) {
+	store := &stubLedger{
+		tokenTimeseries: []ledger.TokenTimeseriesPoint{
+			{Timestamp: time.Now(), InputTokens: 1000, OutputTokens: 500},
+		},
+	}
+	h := NewHandler(store, nil, testLogger())
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	req := httptest.NewRequest("GET", "/api/dashboard/timeseries/tokens?interval=hour&hours=24", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	var points []ledger.TokenTimeseriesPoint
+	if err := json.NewDecoder(w.Body).Decode(&points); err != nil {
+		t.Fatal(err)
+	}
+	if len(points) != 1 {
+		t.Errorf("expected 1 point, got %d", len(points))
 	}
 }
 

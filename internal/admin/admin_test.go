@@ -287,6 +287,32 @@ func TestHandler_DeleteNonExistent(t *testing.T) {
 	}
 }
 
+func TestHandler_BudgetStatus(t *testing.T) {
+	db := setupTestDB(t)
+	store := admin.NewStore(db)
+	handler := admin.NewHandler(store, nil, nil, "token", nil, testLogger())
+
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+
+	// Budget status should return an empty array when no ledger is configured.
+	req := httptest.NewRequest("GET", "/api/admin/budgets/status", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var statuses []json.RawMessage
+	if err := json.NewDecoder(rec.Body).Decode(&statuses); err != nil {
+		t.Fatal(err)
+	}
+	if len(statuses) != 0 {
+		t.Fatalf("expected 0 statuses with nil ledger, got %d", len(statuses))
+	}
+}
+
 func TestHandler_NoToken(t *testing.T) {
 	db := setupTestDB(t)
 	store := admin.NewStore(db)

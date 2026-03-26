@@ -54,6 +54,15 @@ func (m *mockStore) QueryRecentExpensive(_ context.Context, _, _ time.Time, _ st
 func (m *mockStore) QueryErrorStats(_ context.Context, _, _ time.Time, _ string) (*ledger.ErrorStats, error) {
 	return &ledger.ErrorStats{}, nil
 }
+func (m *mockStore) QueryRecentSessions(_ context.Context, _, _ time.Time, _ string, _ int) ([]ledger.SessionRecord, error) {
+	return nil, nil
+}
+func (m *mockStore) QueryLatencyPercentiles(_ context.Context, _, _ time.Time, _ string) (*ledger.LatencyStats, error) {
+	return &ledger.LatencyStats{}, nil
+}
+func (m *mockStore) QueryTokenTimeseries(_ context.Context, _ string, _, _ time.Time, _ string) ([]ledger.TokenTimeseriesPoint, error) {
+	return nil, nil
+}
 
 func (m *mockStore) Close() error { return nil }
 
