@@ -60,17 +60,18 @@ docker_manifests:
       - "ghcr.io/wdz-dev/agent-ledger:{{.Version}}-amd64"
       - "ghcr.io/wdz-dev/agent-ledger:{{.Version}}-arm64"
 
-brews:
-  - repository:
-      owner: wdz-dev
-      name: homebrew-tap
-    homepage: "https://github.com/WDZ-Dev/agent-ledger"
-    description: "Cost attribution, budget enforcement, and financial observability for AI agents"
-    license: "LicenseRef-AgentLedger-SAL-1.0"
-    install: |
-      bin.install "agentledger"
-    test: |
-      system "#{bin}/agentledger", "--version"
+# brews:
+#   - repository:
+#       owner: wdz-dev
+#       name: homebrew-tap
+#       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+#     homepage: "https://github.com/WDZ-Dev/agent-ledger"
+#     description: "Cost attribution, budget enforcement, and financial observability for AI agents"
+#     license: "LicenseRef-AgentLedger-SAL-1.0"
+#     install: |
+#       bin.install "agentledger"
+#     test: |
+#       system "#{bin}/agentledger", "--version"
 
 checksum:
   name_template: "checksums.txt"
