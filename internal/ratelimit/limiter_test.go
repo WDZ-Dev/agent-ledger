@@ -9,6 +9,7 @@ func TestLimiterAllows(t *testing.T) {
 	l := New(Config{
 		Default: Rule{RequestsPerMinute: 3},
 	})
+	defer l.Close()
 
 	for i := 0; i < 3; i++ {
 		ok, _ := l.Allow("sk-test", "hash1")
@@ -29,12 +30,14 @@ func TestLimiterAllows(t *testing.T) {
 
 func TestLimiterEnabled(t *testing.T) {
 	l := New(Config{})
+	defer l.Close()
 	if l.Enabled() {
 		t.Error("should not be enabled with zero config")
 	}
 
-	l = New(Config{Default: Rule{RequestsPerMinute: 10}})
-	if !l.Enabled() {
+	l2 := New(Config{Default: Rule{RequestsPerMinute: 10}})
+	defer l2.Close()
+	if !l2.Enabled() {
 		t.Error("should be enabled with default rule")
 	}
 }
@@ -46,6 +49,7 @@ func TestLimiterPerKeyRules(t *testing.T) {
 			{APIKeyPattern: "sk-dev-*", RequestsPerMinute: 2},
 		},
 	})
+	defer l.Close()
 
 	// Dev key — limited to 2/min.
 	l.Allow("sk-dev-abc", "dev-hash")
@@ -66,6 +70,7 @@ func TestLimiterWindowResets(t *testing.T) {
 	l := New(Config{
 		Default: Rule{RequestsPerMinute: 1},
 	})
+	defer l.Close()
 
 	ok, _ := l.Allow("sk-test", "hash1")
 	if !ok {
@@ -84,5 +89,30 @@ func TestLimiterWindowResets(t *testing.T) {
 	ok, _ = l.Allow("sk-test", "hash1")
 	if !ok {
 		t.Error("should be allowed after window reset")
+	}
+}
+
+func TestLimiterEvictsExpired(t *testing.T) {
+	l := New(Config{
+		Default: Rule{RequestsPerMinute: 10},
+	})
+	defer l.Close()
+
+	// Add a request to create a window.
+	l.Allow("sk-test", "hash1")
+
+	// Expire the window manually.
+	l.mu.Lock()
+	l.minuteCounters["hash1"].windowEnd = time.Now().Add(-time.Second)
+	l.mu.Unlock()
+
+	l.evictExpired()
+
+	l.mu.Lock()
+	_, exists := l.minuteCounters["hash1"]
+	l.mu.Unlock()
+
+	if exists {
+		t.Error("expected expired window to be evicted")
 	}
 }

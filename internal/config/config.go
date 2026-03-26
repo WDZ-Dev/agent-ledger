@@ -23,6 +23,19 @@ type Config struct {
 	RateLimits     RateLimitsConfig `mapstructure:"rate_limits"`
 	Admin          AdminConfig      `mapstructure:"admin"`
 	MCP            MCPConfig        `mapstructure:"mcp"`
+	CORS           CORSConfig       `mapstructure:"cors"`
+	TLS            TLSConfig        `mapstructure:"tls"`
+}
+
+// CORSConfig holds CORS settings.
+type CORSConfig struct {
+	AllowOrigins []string `mapstructure:"allow_origins"`
+}
+
+// TLSConfig holds TLS settings.
+type TLSConfig struct {
+	CertFile string `mapstructure:"cert_file"`
+	KeyFile  string `mapstructure:"key_file"`
 }
 
 // ProvidersConfig holds per-provider settings.

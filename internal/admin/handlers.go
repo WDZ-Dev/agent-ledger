@@ -1,7 +1,9 @@
 package admin
 
 import (
+	"crypto/subtle"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -16,16 +18,18 @@ type Handler struct {
 	budgetMgr *budget.Manager
 	token     string // admin authentication token
 	blocklist *Blocklist
+	logger    *slog.Logger
 }
 
 // NewHandler creates an admin API handler.
-func NewHandler(store *Store, l ledger.Ledger, budgetMgr *budget.Manager, token string, blocklist *Blocklist) *Handler {
+func NewHandler(store *Store, l ledger.Ledger, budgetMgr *budget.Manager, token string, blocklist *Blocklist, logger *slog.Logger) *Handler {
 	return &Handler{
 		store:     store,
 		ledger:    l,
 		budgetMgr: budgetMgr,
 		token:     token,
 		blocklist: blocklist,
+		logger:    logger,
 	}
 }
 
@@ -48,9 +52,16 @@ func (h *Handler) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		auth := r.Header.Get("Authorization")
-		if auth != "Bearer "+h.token {
+		expected := "Bearer " + h.token
+		if subtle.ConstantTimeCompare([]byte(auth), []byte(expected)) != 1 {
 			writeAdminError(w, http.StatusUnauthorized, "invalid admin token")
 			return
+		}
+		if r.Method != http.MethodGet {
+			if r.Header.Get("X-Requested-With") != "XMLHttpRequest" {
+				writeAdminError(w, http.StatusForbidden, "missing required header")
+				return
+			}
 		}
 		next(w, r)
 	}
@@ -60,7 +71,8 @@ func (h *Handler) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 func (h *Handler) handleListRules(w http.ResponseWriter, r *http.Request) {
 	var rules []budget.Rule
 	if err := h.store.GetJSON(r.Context(), "budget_rules", &rules); err != nil {
-		writeAdminError(w, http.StatusInternalServerError, err.Error())
+		h.logger.Error("listing budget rules", "error", err)
+		writeAdminError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	writeAdminJSON(w, rules)
@@ -80,7 +92,8 @@ func (h *Handler) handleCreateRule(w http.ResponseWriter, r *http.Request) {
 	rules = append(rules, rule)
 
 	if err := h.store.SetJSON(r.Context(), "budget_rules", rules); err != nil {
-		writeAdminError(w, http.StatusInternalServerError, err.Error())
+		h.logger.Error("saving budget rules", "error", err)
+		writeAdminError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
@@ -120,7 +133,8 @@ func (h *Handler) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.SetJSON(r.Context(), "budget_rules", filtered); err != nil {
-		writeAdminError(w, http.StatusInternalServerError, err.Error())
+		h.logger.Error("deleting budget rule", "error", err)
+		writeAdminError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
@@ -150,7 +164,8 @@ func (h *Handler) handleBlockKey(w http.ResponseWriter, r *http.Request) {
 	patterns = append(patterns, req.Pattern)
 
 	if err := h.store.SetJSON(r.Context(), "blocked_keys", patterns); err != nil {
-		writeAdminError(w, http.StatusInternalServerError, err.Error())
+		h.logger.Error("blocking API key", "error", err)
+		writeAdminError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
@@ -189,7 +204,8 @@ func (h *Handler) handleUnblockKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.store.SetJSON(r.Context(), "blocked_keys", filtered); err != nil {
-		writeAdminError(w, http.StatusInternalServerError, err.Error())
+		h.logger.Error("unblocking API key", "error", err)
+		writeAdminError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
@@ -204,7 +220,8 @@ func (h *Handler) handleUnblockKey(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleListBlocked(w http.ResponseWriter, r *http.Request) {
 	var patterns []string
 	if err := h.store.GetJSON(r.Context(), "blocked_keys", &patterns); err != nil {
-		writeAdminError(w, http.StatusInternalServerError, err.Error())
+		h.logger.Error("listing blocked keys", "error", err)
+		writeAdminError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	if patterns == nil {
@@ -224,7 +241,8 @@ func (h *Handler) handleListAPIKeys(w http.ResponseWriter, r *http.Request) {
 		GroupBy: "key",
 	})
 	if err != nil {
-		writeAdminError(w, http.StatusInternalServerError, err.Error())
+		h.logger.Error("listing API keys", "error", err)
+		writeAdminError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
@@ -251,7 +269,8 @@ func (h *Handler) handleListProviders(w http.ResponseWriter, r *http.Request) {
 	// Return from runtime config if available.
 	var providers map[string]bool
 	if err := h.store.GetJSON(r.Context(), "providers_enabled", &providers); err != nil {
-		writeAdminError(w, http.StatusInternalServerError, err.Error())
+		h.logger.Error("listing providers", "error", err)
+		writeAdminError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	if providers == nil {

@@ -81,7 +81,8 @@ type trackedSession struct {
 }
 
 const (
-	flushInterval = 10 * time.Second
+	flushInterval     = 10 * time.Second
+	maxActiveSessions = 10000
 
 	StatusActive    = "active"
 	StatusCompleted = "completed"
@@ -126,6 +127,9 @@ func (t *Tracker) TrackCall(sessionID, agentID, userID, task, model, path string
 
 	ts, ok := t.sessions[sessionID]
 	if !ok {
+		if len(t.sessions) >= maxActiveSessions {
+			t.evictOldest()
+		}
 		ts = &trackedSession{
 			session: Session{
 				ID:        sessionID,
@@ -265,6 +269,32 @@ func (t *Tracker) Close() {
 		close(t.done)
 		t.flush()
 	})
+}
+
+func (t *Tracker) evictOldest() {
+	var oldestID string
+	var oldestTime time.Time
+	first := true
+
+	for id, ts := range t.sessions {
+		lastActivity := ts.session.StartedAt
+		if len(ts.calls) > 0 {
+			lastActivity = ts.calls[len(ts.calls)-1].Timestamp
+		}
+		if first || lastActivity.Before(oldestTime) {
+			oldestID = id
+			oldestTime = lastActivity
+			first = false
+		}
+	}
+
+	if oldestID != "" {
+		t.logger.Warn("evicting oldest session due to max sessions cap",
+			"session_id", oldestID,
+			"last_activity", oldestTime,
+		)
+		delete(t.sessions, oldestID)
+	}
 }
 
 func (t *Tracker) backgroundLoop() {

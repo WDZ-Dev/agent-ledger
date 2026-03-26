@@ -3,6 +3,8 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -37,6 +39,10 @@ func (s *stubLedger) QueryErrorStats(_ context.Context, _, _ time.Time, _ string
 }
 func (s *stubLedger) Close() error { return nil }
 
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
 func TestHandleSummary(t *testing.T) {
 	store := &stubLedger{
 		costs: []ledger.CostEntry{
@@ -44,7 +50,7 @@ func TestHandleSummary(t *testing.T) {
 			{Model: "claude-sonnet-4-6", Requests: 5, TotalCostUSD: 1.20},
 		},
 	}
-	h := NewHandler(store, nil)
+	h := NewHandler(store, nil, testLogger())
 
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
@@ -76,7 +82,7 @@ func TestHandleTimeseries(t *testing.T) {
 			{Timestamp: time.Now(), CostUSD: 0.50, Requests: 10},
 		},
 	}
-	h := NewHandler(store, nil)
+	h := NewHandler(store, nil, testLogger())
 
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
@@ -104,7 +110,7 @@ func TestHandleCosts(t *testing.T) {
 			{Model: "gpt-4o-mini", Requests: 10, InputTokens: 100, OutputTokens: 50, TotalCostUSD: 0.50},
 		},
 	}
-	h := NewHandler(store, nil)
+	h := NewHandler(store, nil, testLogger())
 
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
@@ -132,7 +138,7 @@ func TestHandleCostsWithTenant(t *testing.T) {
 			{Model: "gpt-4o-mini", Requests: 3, TotalCostUSD: 0.15},
 		},
 	}
-	h := NewHandler(store, nil)
+	h := NewHandler(store, nil, testLogger())
 
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
@@ -152,7 +158,7 @@ func TestHandleSummaryWithTenant(t *testing.T) {
 			{Model: "gpt-4o-mini", Requests: 5, TotalCostUSD: 0.25},
 		},
 	}
-	h := NewHandler(store, nil)
+	h := NewHandler(store, nil, testLogger())
 
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
@@ -172,7 +178,7 @@ func TestHandleTimeseriesWithTenant(t *testing.T) {
 			{Timestamp: time.Now(), CostUSD: 0.10, Requests: 2},
 		},
 	}
-	h := NewHandler(store, nil)
+	h := NewHandler(store, nil, testLogger())
 
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
@@ -188,7 +194,7 @@ func TestHandleTimeseriesWithTenant(t *testing.T) {
 
 func TestHandleSessionsWithoutTracker(t *testing.T) {
 	store := &stubLedger{}
-	h := NewHandler(store, nil)
+	h := NewHandler(store, nil, testLogger())
 
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)

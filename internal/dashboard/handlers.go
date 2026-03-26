@@ -4,6 +4,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -16,11 +17,12 @@ import (
 type Handler struct {
 	ledger  ledger.Ledger
 	tracker *agent.Tracker
+	logger  *slog.Logger
 }
 
 // NewHandler creates a dashboard API handler.
-func NewHandler(l ledger.Ledger, tracker *agent.Tracker) *Handler {
-	return &Handler{ledger: l, tracker: tracker}
+func NewHandler(l ledger.Ledger, tracker *agent.Tracker, logger *slog.Logger) *Handler {
+	return &Handler{ledger: l, tracker: tracker, logger: logger}
 }
 
 // RegisterRoutes registers dashboard API routes on the given mux.
@@ -48,7 +50,8 @@ func (h *Handler) handleSummary(w http.ResponseWriter, r *http.Request) {
 		TenantID: tenantID,
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		h.logger.Error("querying today costs", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
@@ -67,7 +70,8 @@ func (h *Handler) handleSummary(w http.ResponseWriter, r *http.Request) {
 		TenantID: tenantID,
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		h.logger.Error("querying month costs", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
@@ -108,7 +112,8 @@ func (h *Handler) handleTimeseries(w http.ResponseWriter, r *http.Request) {
 
 	points, err := h.ledger.QueryCostTimeseries(r.Context(), interval, since, now, tenantID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		h.logger.Error("querying timeseries", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
@@ -138,7 +143,8 @@ func (h *Handler) handleCosts(w http.ResponseWriter, r *http.Request) {
 		TenantID: tenantID,
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		h.logger.Error("querying costs", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
@@ -183,7 +189,8 @@ func (h *Handler) handleExport(w http.ResponseWriter, r *http.Request) {
 		TenantID: tenantID,
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		h.logger.Error("exporting costs", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
@@ -239,7 +246,8 @@ func (h *Handler) handleExpensive(w http.ResponseWriter, r *http.Request) {
 
 	results, err := h.ledger.QueryRecentExpensive(r.Context(), since, now, tenantID, limit)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		h.logger.Error("querying expensive requests", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	writeJSON(w, results)
@@ -256,7 +264,8 @@ func (h *Handler) handleStats(w http.ResponseWriter, r *http.Request) {
 
 	stats, err := h.ledger.QueryErrorStats(r.Context(), since, now, tenantID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		h.logger.Error("querying error stats", "error", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	writeJSON(w, stats)

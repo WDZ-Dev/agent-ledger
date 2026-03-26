@@ -285,3 +285,53 @@ func TestExpireIdleSessions(t *testing.T) {
 		t.Errorf("status = %q, want completed (should be expired)", ts.session.Status)
 	}
 }
+
+func TestTrackerEvictsOldestSession(t *testing.T) {
+	store := newStubStore()
+	cfg := Config{SessionTimeoutMins: 30}
+	tracker := NewTracker(store, cfg, nil, testLogger())
+	defer tracker.Close()
+
+	// Fill to max capacity.
+	tracker.mu.Lock()
+	for i := 0; i < maxActiveSessions; i++ {
+		id := "sess-" + time.Now().Add(time.Duration(i)*time.Millisecond).Format("150405.000000")
+		tracker.sessions[id] = &trackedSession{
+			session: Session{
+				ID:        id,
+				Status:    StatusActive,
+				StartedAt: time.Now(),
+			},
+			calls: []CallRecord{
+				{Timestamp: time.Now()},
+			},
+		}
+	}
+	// Add one old session that should be evicted.
+	tracker.sessions["oldest"] = &trackedSession{
+		session: Session{
+			ID:        "oldest",
+			Status:    StatusActive,
+			StartedAt: time.Now().Add(-1 * time.Hour),
+		},
+		calls: []CallRecord{
+			{Timestamp: time.Now().Add(-1 * time.Hour)},
+		},
+	}
+	tracker.mu.Unlock()
+
+	// This should evict the oldest session to make room.
+	tracker.TrackCall("new-session", "agent1", "user1", "task", "gpt-4o", "/v1/chat/completions")
+
+	tracker.mu.RLock()
+	_, oldestExists := tracker.sessions["oldest"]
+	_, newExists := tracker.sessions["new-session"]
+	tracker.mu.RUnlock()
+
+	if oldestExists {
+		t.Error("oldest session should have been evicted")
+	}
+	if !newExists {
+		t.Error("new session should have been created")
+	}
+}

@@ -141,3 +141,24 @@ func TestHTTPProxy_NonToolCallPassthrough(t *testing.T) {
 		t.Errorf("expected 0 records for tools/list, got %d", len(records))
 	}
 }
+
+func TestHTTPProxy_PathTraversal(t *testing.T) {
+	store := &recordingLedger{}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	rec := ledger.NewRecorder(store, 100, 1, logger)
+	defer rec.Close()
+
+	proxy := NewHTTPProxy("http://localhost:9999", NewPricer(nil), rec, logger)
+
+	// Attempt path traversal.
+	reqBody := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"test"}}`
+	req := httptest.NewRequest(http.MethodPost, "/mcp/../../../etc/passwd", strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+	proxy.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("path traversal: status = %d, want 400", rr.Code)
+	}
+}
