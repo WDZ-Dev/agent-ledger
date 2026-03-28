@@ -4,6 +4,10 @@
 
 AgentLedger is a reverse proxy that sits between your AI agents and LLM providers, tracking every token, calculating costs, and enforcing budgets — all without changing a single line of your application code.
 
+<p align="center">
+  <img src="promo/demo.gif" alt="AgentLedger Demo" width="960">
+</p>
+
 ```bash
 export OPENAI_BASE_URL=http://localhost:8787/v1
 # That's it. Your agents now have cost tracking and budget enforcement.
